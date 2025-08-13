@@ -3,11 +3,11 @@ const { Telegraf, Markup } = require('telegraf');
 let rawCelebs = require('./celebs.json');
 
 // ----- BOT TOKEN (Railway env var) -----
-if (!process.env.TELEGRAM_BOT_TOKEN) {
-  console.error('Missing TELEGRAM_BOT_TOKEN env var');
+if (!process.env.BOT_TOKEN) {
+  console.error('Missing BOT_TOKEN env var');
   process.exit(1);
 }
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // ----- UTIL: slug + safe label -----
 const slugify = (s) =>
@@ -99,7 +99,6 @@ bot.action(/^page:(\d+)$/, async (ctx) => {
   try {
     await ctx.editMessageReplyMarkup(buildMenu(page).reply_markup);
   } catch {
-    // If original message can’t be edited (too old, etc.), send a new one
     await ctx.reply('Choose a celebrity:', buildMenu(page));
   }
 });
