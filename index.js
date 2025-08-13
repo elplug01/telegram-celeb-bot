@@ -5,11 +5,9 @@ const token = process.env.BOT_TOKEN;
 if (!token) { console.error('❌ Missing BOT_TOKEN'); process.exit(1); }
 
 const bot = new TelegramBot(token, { polling: true });
-
-// ---------- config ----------
 const PAGE_SIZE = 10;
 
-// Load celebs from file
+// ---- data helpers ----
 function loadCelebs() {
   try {
     const raw = fs.readFileSync('celebs.json', 'utf8');
@@ -21,7 +19,6 @@ function loadCelebs() {
   }
 }
 
-// Build keyboard for a page
 function listKeyboard(celebs, page = 1) {
   const total = celebs.length;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -34,7 +31,6 @@ function listKeyboard(celebs, page = 1) {
     { text: c.name, callback_data: `celeb:${start + i}:${page}` }
   ]);
 
-  // nav row
   rows.push([
     { text: '⬅️ Prev', callback_data: `page:${Math.max(1, page - 1)}` },
     { text: `Page ${page}/${pages}`, callback_data: 'noop' },
@@ -44,30 +40,47 @@ function listKeyboard(celebs, page = 1) {
   return { inline_keyboard: rows };
 }
 
-async function sendCatalog(ctx, page = 1) {
+// ---- UI helpers ----
+async function sendMenu(chatId, page = 1) {
   const celebs = loadCelebs();
-  return bot.sendMessage(ctx.chat.id, 'Choose a celebrity:', {
+  return bot.sendMessage(chatId, 'Choose a celebrity:', {
     reply_markup: listKeyboard(celebs, page)
   });
 }
 
+async function editMenuInPlace(qMessage, page = 1) {
+  const celebs = loadCelebs();
+  const chat_id = qMessage.chat.id;
+  const message_id = qMessage.message_id;
+
+  // edit both text and keyboard to keep it neat
+  try {
+    await bot.editMessageText('Choose a celebrity:', {
+      chat_id,
+      message_id,
+      reply_markup: listKeyboard(celebs, page)
+    });
+  } catch (e) {
+    // Telegram throws “message is not modified” if nothing changed; ignore
+    if (!String(e.message).includes('message is not modified')) {
+      console.error('editMessageText error:', e.message);
+    }
+  }
+}
+
 async function showCeleb(chatId, celeb, page) {
-  const source = celeb.fileId || celeb.url || celeb.photo;
+  const src = celeb.fileId || celeb.url || celeb.photo;
   const kb = {
     inline_keyboard: [
       ...(celeb.bio ? [[{ text: '🔗 View Bio', url: celeb.bio }]] : []),
-      [
-        { text: '⬅️ Back to list', callback_data: `page:${page}` }
-      ]
+      [{ text: '⬅️ Back to list', callback_data: `back:${page}` }]
     ]
   };
-
-  if (!source) {
-    return bot.sendMessage(chatId, `${celeb.name}`, { reply_markup: kb });
+  if (!src) {
+    return bot.sendMessage(chatId, celeb.name, { reply_markup: kb });
   }
-
   try {
-    return await bot.sendPhoto(chatId, source, {
+    return await bot.sendPhoto(chatId, src, {
       caption: celeb.name,
       reply_markup: kb
     });
@@ -79,26 +92,29 @@ async function showCeleb(chatId, celeb, page) {
   }
 }
 
-// ---------- handlers ----------
-bot.onText(/\/start|\/list/, (msg) => sendCatalog(msg, 1));
+// ---- commands ----
+bot.onText(/\/start|\/list/, (msg) => sendMenu(msg.chat.id, 1));
 
+// ---- callbacks ----
 bot.on('callback_query', async (q) => {
   const celebs = loadCelebs();
   const data = q.data;
+  const chatId = q.message.chat.id;
+  const msgId = q.message.message_id;
 
   try {
     if (data === 'noop') {
       return bot.answerCallbackQuery(q.id);
     }
 
+    // paginate in place (edit the same message)
     if (data.startsWith('page:')) {
       const page = Number(data.split(':')[1] || '1');
-      await bot.sendMessage(q.message.chat.id, 'Choose a celebrity:', {
-        reply_markup: listKeyboard(celebs, page)
-      });
+      await editMenuInPlace(q.message, page);
       return bot.answerCallbackQuery(q.id);
     }
 
+    // celeb selected: delete the menu message, then send photo
     if (data.startsWith('celeb:')) {
       const [_, idxStr, pageStr] = data.split(':');
       const idx = Number(idxStr);
@@ -108,7 +124,17 @@ bot.on('callback_query', async (q) => {
         await bot.answerCallbackQuery(q.id, { text: 'Not found', show_alert: true });
         return;
       }
-      await showCeleb(q.message.chat.id, celeb, page);
+      // remove the menu to avoid stacking
+      try { await bot.deleteMessage(chatId, msgId); } catch {}
+      await showCeleb(chatId, celeb, page);
+      return bot.answerCallbackQuery(q.id);
+    }
+
+    // back from photo: delete the photo message, re-open menu
+    if (data.startsWith('back:')) {
+      const page = Number(data.split(':')[1] || '1');
+      try { await bot.deleteMessage(chatId, msgId); } catch {}
+      await sendMenu(chatId, page);
       return bot.answerCallbackQuery(q.id);
     }
   } catch (err) {
@@ -118,4 +144,4 @@ bot.on('callback_query', async (q) => {
 });
 
 bot.on('polling_error', e => console.error('polling_error:', e.message));
-console.log('✅ Bot running with pagination.');
+console.log('✅ Bot running (pagination edits in place).');
