@@ -1,8 +1,8 @@
 // index.js
 const { Telegraf, Markup } = require('telegraf');
-let rawCelebs = require('./celebs.json');
+const rawCelebs = require('./celebs.json');
 
-// ----- BOT TOKEN (supports TELEGRAM_BOT_TOKEN or BOT_TOKEN) -----
+// ---- TOKEN (Railway) ----
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
 if (!TOKEN) {
   console.error('Missing TELEGRAM_BOT_TOKEN (or BOT_TOKEN) env var');
@@ -10,7 +10,7 @@ if (!TOKEN) {
 }
 const bot = new Telegraf(TOKEN);
 
-// ----- helpers -----
+// ---- helpers ----
 const slugify = (s) =>
   String(s || '')
     .toLowerCase()
@@ -24,39 +24,28 @@ const celebs = (rawCelebs || [])
   .filter(c => c && c.name)
   .map(c => ({ ...c, slug: c.slug ? String(c.slug) : slugify(c.name) }));
 
-// 1 emoji per name
-const emojiMap = {
-  "Ellie Leen":"🌼","Xenon":"💜","Lada Lyumos":"🎭",
-  "Alina Becker":"🎀","Corrina Kopf":"💄","Mikayla Demaiter":"🏒","HannahOwo":"🎮","Amouranth":"🔥","Octokuro":"🖤","Selti":"🧊","Grace Charis":"⛳️","Vladislava Shelygina":"❄️",
-  "Mia Khalifa":"🖋️","Megnut":"🥜","Lela Sonha":"🌙","SweetieFox":"🦊","Vanessa Bohorquez":"🌴","Kayla Moody":"✨","Fetching_Butterflies":"🦋","Kenzie Anne":"💎","Leah Chan":"🎨","Elle Brooke":"⚽️",
-  "Bunni.Emmie":"🐰","MsSethi":"🌶️","Dainty Wilder":"🌸","Izzybunnies":"🐇","Funsizedasian":"🍡","Whitecrush":"🤍","Lehlani":"🌺","RealSkyBri":"☁️","Isla Moon":"🌕","Audrey & Sadie":"👯‍♀️",
-  "Quinn Finite":"♾️","Jodielawsonx":"📸","Avva Ballerina":"🩰","MsPuiyi":"🌟","Bigtittygothegg":"🥚","Peachthot":"🍑","Avva Addams":"🖤","LittleSula":"🧸","Mia Malkova":"🌼","Bishoujomom":"🌸",
-  "Kimberly Yang":"💮","mysticbeing":"🔮","Bronwin Aurora":"🌅","Reiinapop":"🍭","hot4lexi":"🔥","aliceoncam":"🎥","Emblack":"🖤","Miss Fetilicious":"🍯","Angela White":"🤍","soogsx":"💫",
-  "Emily Lynne":"🌿","Jasminx":"🌼","MsFiiire":"🔥","Railey Diesel":"🛠️","Beckyxxoo":"💋","Evie Rain":"🌧️","f_urbee":"🐝","Jameliz":"💃","shinratensei98":"🌀","zartprickelnd":"✨",
-  "Rae Lil Black":"🕶️","Lana Rhoades":"💎","Noemiexlili":"🌙","Sophia Smith":"📚","Kittyxkum":"🐱","Gill Ellis Young":"🎓","Sarawxp":"🌊","Stormy_Succubus":"🌩️","Your_submissive_doll":"🪆","Rocksylight":"🪨",
-  "Mackenzie Jones":"🎵","cherrishlulu":"🍒","Alyssa9":"9️⃣","Nikanikaa":"🌟","Olivia Casta":"🌹","Lady Melamori":"🎀","Waifumiia":"🧋","Eva Elfie":"🧚","Belle Delphine":"🧼","Amanda Cerny":"🎬",
-  "Sophie Mudd":"🧁","Sara Underwood":"🌲","Genesis Mia Lopez":"📖","Demi Rose":"🌹","Alice Delish":"🍰","Rachel Cook":"🍳","Hana Bunny":"🐰","Shiftymine":"⛏️","Izzy Green":"🍀","sunnyrayxo":"☀️",
-  "Vyvan Le":"🪷","Potatogodzilla":"🥔","Natalie Roush":"🚗","Morgpie":"🥧","Byoru":"🍡","Jessica Nigri":"🎮","Alinity":"🐾","Miniloonaa":"🌙","cherrycrush":"🍒","Vinnegal":"🧪",
-  "Norafawn":"🦌","Veronica Perasso":"💃","Haneame":"🎎","Hime_Tsu":"👑","Iggy Azalea":"🎤","Makoshake":"🥤","Bebahan":"🐝","Voulezj":"💄","peachjars":"🍑","Okichloeo":"🧜‍♀️"
-};
-const label = (name) => `${emojiMap[name] || '⭐'}  ${name}`;
+// label without emojis
+const label = (name) => name;
 
+// pagination
 const PAGE_SIZE = 10;
 function buildMenu(page = 1) {
   const start = (page - 1) * PAGE_SIZE;
   const slice = celebs.slice(start, start + PAGE_SIZE);
 
   const rows = slice.map(c => [Markup.button.callback(label(c.name), `pick:${c.slug}`)]);
+
   const totalPages = Math.max(1, Math.ceil(celebs.length / PAGE_SIZE));
   const nav = [];
   if (page > 1) nav.push(Markup.button.callback('⬅️ Prev', `page:${page - 1}`));
   nav.push(Markup.button.callback(`Page ${page}/${totalPages}`, 'noop'));
   if (page < totalPages) nav.push(Markup.button.callback('Next ➡️', `page:${page + 1}`));
   rows.push(nav);
+
   return Markup.inlineKeyboard(rows);
 }
 
-// edit-in-place helper (fallback: send new and delete old)
+// edit-in-place helper (fallback: send new + delete old)
 async function editOrSendNew(ctx, editFn, sendFn) {
   const msgId = ctx.callbackQuery?.message?.message_id;
   try {
@@ -68,7 +57,7 @@ async function editOrSendNew(ctx, editFn, sendFn) {
   }
 }
 
-// actions
+// ---- handlers ----
 bot.start((ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
 
 bot.action(/^page:(\d+)$/, async (ctx) => {
@@ -92,11 +81,16 @@ bot.action(/^pick:(.+)$/, async (ctx) => {
 
   await editOrSendNew(
     ctx,
-    async () => ctx.editMessageMedia(
-      { type: 'photo', media: celeb.image, caption: celeb.name },
-      { reply_markup: buttons.reply_markup }
-    ),
-    async () => ctx.replyWithPhoto({ url: celeb.image }, { caption: celeb.name, reply_markup: buttons.reply_markup })
+    async () =>
+      ctx.editMessageMedia(
+        { type: 'photo', media: celeb.image, caption: celeb.name },
+        { reply_markup: buttons.reply_markup }
+      ),
+    async () =>
+      ctx.replyWithPhoto(
+        { url: celeb.image },
+        { caption: celeb.name, reply_markup: buttons.reply_markup }
+      )
   );
 });
 
@@ -109,9 +103,9 @@ bot.action(/^back:(\d+)$/, async (ctx) => {
 });
 
 bot.action('noop', (ctx) => ctx.answerCbQuery(''));
-
 bot.launch();
 console.log('Bot running…');
 
+// graceful stop (Railway)
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
