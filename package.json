@@ -1,7 +1,7 @@
 {
   "name": "telegram-celeb-bot",
   "version": "1.0.0",
-  "description": "Telegram bot to send celeb names and links",
+  "description": "Telegram bot to show celebrity list",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
