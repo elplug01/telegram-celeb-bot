@@ -1,15 +1,16 @@
 // index.js
 const { Telegraf, Markup } = require('telegraf');
-let rawCelebs = require('./celebs.json');
+const rawCelebs = require('./celebs.json');
 
-// ----- BOT TOKEN (Railway env var) -----
-if (!process.env.BOT_TOKEN) {
-  console.error('Missing BOT_TOKEN env var');
+// ---- BOT TOKEN (Railway env var) ----
+const TOKEN = process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+if (!TOKEN) {
+  console.error('Missing BOT_TOKEN (or TELEGRAM_BOT_TOKEN) env var');
   process.exit(1);
 }
-const bot = new Telegraf(process.env.BOT_TOKEN);
+const bot = new Telegraf(TOKEN);
 
-// ----- UTIL: slug + safe label -----
+// ---- UTIL: slug + safe label ----
 const slugify = (s) =>
   String(s || '')
     .toLowerCase()
@@ -20,63 +21,37 @@ const slugify = (s) =>
 
 // Normalize celebs (ensure slug exists)
 const celebs = (rawCelebs || [])
-  .filter(c => c && c.name) // keep only valid rows
-  .map(c => ({
+  .filter((c) => c && c.name)
+  .map((c) => ({
     ...c,
     slug: c.slug ? String(c.slug) : slugify(c.name),
   }));
 
-// ----- EMOJI MAP (1 emoji per name) -----
+// ---- EMOJI MAP (1 emoji per name) ----
 const emojiMap = {
-  "Ellie Leen": "🌼", "Xenon": "💜", "Lada Lyumos": "🎭",
-  "Alina Becker": "🎀", "Corrina Kopf": "💄", "Mikayla Demaiter": "🏒",
-  "HannahOwo": "🎮", "Amouranth": "🔥", "Octokuro": "🖤", "Selti": "🧊",
-  "Grace Charis": "⛳️", "Vladislava Shelygina": "❄️",
-  "Mia Khalifa": "🖋️", "Megnut": "🥜", "Lela Sonha": "🌙", "SweetieFox": "🦊",
-  "Vanessa Bohorquez": "🌴", "Kayla Moody": "✨", "Fetching_Butterflies": "🦋",
-  "Kenzie Anne": "💎", "Leah Chan": "🎨", "Elle Brooke": "⚽️",
-  "Bunni.Emmie": "🐰", "MsSethi": "🌶️", "Dainty Wilder": "🌸",
-  "Izzybunnies": "🐇", "Funsizedasian": "🍡", "Whitecrush": "🤍",
-  "Lehlani": "🌺", "RealSkyBri": "☁️", "Isla Moon": "🌕",
-  "Audrey & Sadie": "👯‍♀️", "Quinn Finite": "♾️", "Jodielawsonx": "📸",
-  "Avva Ballerina": "🩰", "MsPuiyi": "🌟", "Bigtittygothegg": "🥚",
-  "Peachthot": "🍑", "Avva Addams": "🖤", "LittleSula": "🧸",
-  "Mia Malkova": "🌼", "Bishoujomom": "🌸", "Kimberly Yang": "💮",
-  "mysticbeing": "🔮", "Bronwin Aurora": "🌅", "Reiinapop": "🍭",
-  "hot4lexi": "🔥", "aliceoncam": "🎥", "Emblack": "🖤",
-  "Miss Fetilicious": "🍯", "Angela White": "🤍", "soogsx": "💫",
-  "Emily Lynne": "🌿", "Jasminx": "🌼", "MsFiiire": "🔥",
-  "Railey Diesel": "🛠️", "Beckyxxoo": "💋", "Evie Rain": "🌧️",
-  "f_urbee": "🐝", "Jameliz": "💃", "shinratensei98": "🌀",
-  "zartprickelnd": "✨", "Rae Lil Black": "🕶️", "Lana Rhoades": "💎",
-  "Noemiexlili": "🌙", "Sophia Smith": "📚", "Kittyxkum": "🐱",
-  "Gill Ellis Young": "🎓", "Sarawxp": "🌊", "Stormy_Succubus": "🌩️",
-  "Your_submissive_doll": "🪆", "Rocksylight": "🪨", "Mackenzie Jones": "🎵",
-  "cherrishlulu": "🍒", "Alyssa9": "9️⃣", "Nikanikaa": "🌟",
-  "Olivia Casta": "🌹", "Lady Melamori": "🎀", "Waifumiia": "🧋",
-  "Eva Elfie": "🧚", "Belle Delphine": "🧼", "Amanda Cerny": "🎬",
-  "Sophie Mudd": "🧁", "Sara Underwood": "🌲", "Genesis Mia Lopez": "📖",
-  "Demi Rose": "🌹", "Alice Delish": "🍰", "Rachel Cook": "🍳",
-  "Hana Bunny": "🐰", "Shiftymine": "⛏️", "Izzy Green": "🍀",
-  "sunnyrayxo": "☀️", "Vyvan Le": "🪷", "Potatogodzilla": "🥔",
-  "Natalie Roush": "🚗", "Morgpie": "🥧", "Byoru": "🍡",
-  "Jessica Nigri": "🎮", "Alinity": "🐾", "Miniloonaa": "🌙",
-  "cherrycrush": "🍒", "Vinnegal": "🧪", "Norafawn": "🦌",
-  "Veronica Perasso": "💃", "Haneame": "🎎", "Hime_Tsu": "👑",
-  "Iggy Azalea": "🎤", "Makoshake": "🥤", "Bebahan": "🐝",
-  "Voulezj": "💄", "peachjars": "🍑", "Okichloeo": "🧜‍♀️"
+  "Ellie Leen":"🌼","Xenon":"💜","Lada Lyumos":"🎭",
+  "Alina Becker":"🎀","Corrina Kopf":"💄","Mikayla Demaiter":"🏒","HannahOwo":"🎮","Amouranth":"🔥","Octokuro":"🖤","Selti":"🧊","Grace Charis":"⛳️","Vladislava Shelygina":"❄️",
+  "Mia Khalifa":"🖋️","Megnut":"🥜","Lela Sonha":"🌙","SweetieFox":"🦊","Vanessa Bohorquez":"🌴","Kayla Moody":"✨","Fetching_Butterflies":"🦋","Kenzie Anne":"💎","Leah Chan":"🎨","Elle Brooke":"⚽️",
+  "Bunni.Emmie":"🐰","MsSethi":"🌶️","Dainty Wilder":"🌸","Izzybunnies":"🐇","Funsizedasian":"🍡","Whitecrush":"🤍","Lehlani":"🌺","RealSkyBri":"☁️","Isla Moon":"🌕","Audrey & Sadie":"👯‍♀️",
+  "Quinn Finite":"♾️","Jodielawsonx":"📸","Avva Ballerina":"🩰","MsPuiyi":"🌟","Bigtittygothegg":"🥚","Peachthot":"🍑","Avva Addams":"🖤","LittleSula":"🧸","Mia Malkova":"🌼","Bishoujomom":"🌸",
+  "Kimberly Yang":"💮","mysticbeing":"🔮","Bronwin Aurora":"🌅","Reiinapop":"🍭","hot4lexi":"🔥","aliceoncam":"🎥","Emblack":"🖤","Miss Fetilicious":"🍯","Angela White":"🤍","soogsx":"💫",
+  "Emily Lynne":"🌿","Jasminx":"🌼","MsFiiire":"🔥","Railey Diesel":"🛠️","Beckyxxoo":"💋","Evie Rain":"🌧️","f_urbee":"🐝","Jameliz":"💃","shinratensei98":"🌀","zartprickelnd":"✨",
+  "Rae Lil Black":"🕶️","Lana Rhoades":"💎","Noemiexlili":"🌙","Sophia Smith":"📚","Kittyxkum":"🐱","Gill Ellis Young":"🎓","Sarawxp":"🌊","Stormy_Succubus":"🌩️","Your_submissive_doll":"🪆","Rocksylight":"🪨",
+  "Mackenzie Jones":"🎵","cherrishlulu":"🍒","Alyssa9":"9️⃣","Nikanikaa":"🌟","Olivia Casta":"🌹","Lady Melamori":"🎀","Waifumiia":"🧋","Eva Elfie":"🧚","Belle Delphine":"🧼","Amanda Cerny":"🎬",
+  "Sophie Mudd":"🧁","Sara Underwood":"🌲","Genesis Mia Lopez":"📖","Demi Rose":"🌹","Alice Delish":"🍰","Rachel Cook":"🍳","Hana Bunny":"🐰","Shiftymine":"⛏️","Izzy Green":"🍀","sunnyrayxo":"☀️",
+  "Vyvan Le":"🪷","Potatogodzilla":"🥔","Natalie Roush":"🚗","Morgpie":"🥧","Byoru":"🍡","Jessica Nigri":"🎮","Alinity":"🐾","Miniloonaa":"🌙","cherrycrush":"🍒","Vinnegal":"🧪",
+  "Norafawn":"🦌","Veronica Perasso":"💃","Haneame":"🎎","Hime_Tsu":"👑","Iggy Azalea":"🎤","Makoshake":"🥤","Bebahan":"🐝","Voulezj":"💄","peachjars":"🍑","Okichloeo":"🧜‍♀️"
 };
-
 const label = (name) => `${emojiMap[name] || '⭐'}  ${name}`;
 
-// ----- PAGINATION -----
+// ---- PAGINATION ----
 const PAGE_SIZE = 10;
 
 function buildMenu(page = 1) {
   const start = (page - 1) * PAGE_SIZE;
   const slice = celebs.slice(start, start + PAGE_SIZE);
 
-  const rows = slice.map(c => {
+  const rows = slice.map((c) => {
     const cbData = `pick:${c.slug || slugify(c.name)}`;
     return [Markup.button.callback(label(c.name), cbData)];
   });
@@ -91,7 +66,7 @@ function buildMenu(page = 1) {
   return Markup.inlineKeyboard(rows);
 }
 
-// ----- COMMANDS / ACTIONS -----
+// ---- COMMANDS / ACTIONS ----
 bot.start((ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
 
 bot.action(/^page:(\d+)$/, async (ctx) => {
@@ -103,9 +78,10 @@ bot.action(/^page:(\d+)$/, async (ctx) => {
   }
 });
 
+// Show one celeb (photo + buttons). Hide ugly URL preview on fallback.
 bot.action(/^pick:(.+)$/, async (ctx) => {
   const slug = ctx.match[1];
-  const celeb = celebs.find(c => c.slug === slug);
+  const celeb = celebs.find((c) => c.slug === slug);
   if (!celeb) return ctx.answerCbQuery('Not found');
 
   const buttons = Markup.inlineKeyboard([
@@ -113,15 +89,29 @@ bot.action(/^pick:(.+)$/, async (ctx) => {
     [Markup.button.callback('⬅️ Back', `back:1`)]
   ]);
 
-  try {
-    await ctx.replyWithPhoto({ url: celeb.image }, {
-      caption: celeb.name,
-      reply_markup: buttons.reply_markup
-    });
-  } catch (err) {
-    console.error('send photo error:', err?.message || err);
-    await ctx.reply(`${celeb.name}\n${celeb.url}`, buttons);
+  // Prefer file_id if you add it later; otherwise use image/photo URL
+  const photoInput = celeb.file_id || celeb.fileId || celeb.image || celeb.photo;
+
+  if (photoInput) {
+    try {
+      await ctx.replyWithPhoto(photoInput, {
+        caption: `<b>${celeb.name}</b>`,
+        parse_mode: 'HTML',
+        reply_markup: buttons.reply_markup,
+      });
+      return;
+    } catch (err) {
+      console.error('send photo error:', err?.message || err);
+    }
   }
+
+  // Fallback text (no preview)
+  const text = `<b>${celeb.name}</b>${celeb.url ? `\n<a href="${celeb.url}">Open bio</a>` : ''}`;
+  await ctx.reply(text, {
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+    reply_markup: buttons.reply_markup,
+  });
 });
 
 bot.action(/^back:(\d+)$/, (ctx) =>
