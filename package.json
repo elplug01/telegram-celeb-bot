@@ -1,12 +1,16 @@
 {
   "name": "telegram-celeb-bot",
   "version": "1.0.0",
-  "description": "Telegram bot with buttons + inline thumbnails",
+  "description": "Telegram bot with emojis, pagination, and back/buttons",
   "main": "index.js",
   "type": "commonjs",
-  "scripts": { "start": "node index.js" },
-  "dependencies": {
-    "node-telegram-bot-api": "^0.61.0"
+  "scripts": {
+    "start": "node index.js"
   },
-  "engines": { "node": ">=18" }
+  "dependencies": {
+    "telegraf": "^4.16.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }
