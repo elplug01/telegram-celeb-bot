@@ -1,7 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const celebs = require('./celebs.json');
 
-const token = process.env.BOT_TOKEN; // Make sure BOT_TOKEN is set in Railway Variables
+const token = process.env.BOT_TOKEN; // Railway Variable
 const bot = new TelegramBot(token, { polling: true });
 
 bot.onText(/\/start/, (msg) => {
@@ -18,7 +18,10 @@ bot.onText(/\/celeb (.+)/, (msg, match) => {
   const index = parseInt(match[1]) - 1;
   if (index >= 0 && index < celebs.length) {
     const celeb = celebs[index];
-    bot.sendMessage(msg.chat.id, `${celeb.name}\n${celeb.bio}\n${celeb.url}`);
+    bot.sendPhoto(msg.chat.id, celeb.url, {
+      caption: `${celeb.name}\n[Bio link](${celeb.bio})`,
+      parse_mode: 'Markdown'
+    });
   } else {
     bot.sendMessage(msg.chat.id, 'Invalid number. Use /list to see options.');
   }
