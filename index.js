@@ -19,7 +19,7 @@ const slugify = (s) =>
     .slice(0, 45);
 
 // Normalize celebs (ensure slug exists)
-const celebs = rawCelebs
+const celebs = (rawCelebs || [])
   .filter(c => c && c.name) // keep only valid rows
   .map(c => ({
     ...c,
@@ -29,17 +29,42 @@ const celebs = rawCelebs
 // ----- EMOJI MAP (1 emoji per name) -----
 const emojiMap = {
   "Ellie Leen": "🌼", "Xenon": "💜", "Lada Lyumos": "🎭",
-  "Alina Becker": "🎀","Corrina Kopf": "💄","Mikayla Demaiter": "🏒","HannahOwo": "🎮","Amouranth": "🔥","Octokuro": "🖤","Selti": "🧊","Grace Charis": "⛳️","Vladislava Shelygina": "❄️",
-  "Mia Khalifa": "🖋️","Megnut": "🥜","Lela Sonha": "🌙","SweetieFox": "🦊","Vanessa Bohorquez": "🌴","Kayla Moody": "✨","Fetching_Butterflies": "🦋","Kenzie Anne": "💎","Leah Chan": "🎨","Elle Brooke": "⚽️",
-  "Bunni.Emmie": "🐰","MsSethi": "🌶️","Dainty Wilder": "🌸","Izzybunnies": "🐇","Funsizedasian": "🍡","Whitecrush": "🤍","Lehlani": "🌺","RealSkyBri": "☁️","Isla Moon": "🌕","Audrey & Sadie": "👯‍♀️",
-  "Quinn Finite": "♾️","Jodielawsonx": "📸","Avva Ballerina": "🩰","MsPuiyi": "🌟","Bigtittygothegg": "🥚","Peachthot": "🍑","Avva Addams": "🖤","LittleSula": "🧸","Mia Malkova": "🌼","Bishoujomom": "🌸",
-  "Kimberly Yang": "💮","mysticbeing": "🔮","Bronwin Aurora": "🌅","Reiinapop": "🍭","hot4lexi": "🔥","aliceoncam": "🎥","Emblack": "🖤","Miss Fetilicious": "🍯","Angela White": "🤍","soogsx": "💫",
-  "Emily Lynne": "🌿","Jasminx": "🌼","MsFiiire": "🔥","Railey Diesel": "🛠️","Beckyxxoo": "💋","Evie Rain": "🌧️","f_urbee": "🐝","Jameliz": "💃","shinratensei98": "🌀","zartprickelnd": "✨",
-  "Rae Lil Black": "🕶️","Lana Rhoades": "💎","Noemiexlili": "🌙","Sophia Smith": "📚","Kittyxkum": "🐱","Gill Ellis Young": "🎓","Sarawxp": "🌊","Stormy_Succubus": "🌩️","Your_submissive_doll": "🪆","Rocksylight": "🪨",
-  "Mackenzie Jones": "🎵","cherrishlulu": "🍒","Alyssa9": "9️⃣","Nikanikaa": "🌟","Olivia Casta": "🌹","Lady Melamori": "🎀","Waifumiia": "🧋","Eva Elfie": "🧚","Belle Delphine": "🧼","Amanda Cerny": "🎬",
-  "Sophie Mudd": "🧁","Sara Underwood": "🌲","Genesis Mia Lopez": "📖","Demi Rose": "🌹","Alice Delish": "🍰","Rachel Cook": "🍳","Hana Bunny": "🐰","Shiftymine": "⛏️","Izzy Green": "🍀","sunnyrayxo": "☀️",
-  "Vyvan Le": "🪷","Potatogodzilla": "🥔","Natalie Roush": "🚗","Morgpie": "🥧","Byoru": "🍡","Jessica Nigri": "🎮","Alinity": "🐾","Miniloonaa": "🌙","cherrycrush": "🍒","Vinnegal": "🧪",
-  "Norafawn": "🦌","Veronica Perasso": "💃","Haneame": "🎎","Hime_Tsu": "👑","Iggy Azalea": "🎤","Makoshake": "🥤","Bebahan": "🐝","Voulezj": "💄","peachjars": "🍑","Okichloeo": "🧜‍♀️"
+  "Alina Becker": "🎀", "Corrina Kopf": "💄", "Mikayla Demaiter": "🏒",
+  "HannahOwo": "🎮", "Amouranth": "🔥", "Octokuro": "🖤", "Selti": "🧊",
+  "Grace Charis": "⛳️", "Vladislava Shelygina": "❄️",
+  "Mia Khalifa": "🖋️", "Megnut": "🥜", "Lela Sonha": "🌙", "SweetieFox": "🦊",
+  "Vanessa Bohorquez": "🌴", "Kayla Moody": "✨", "Fetching_Butterflies": "🦋",
+  "Kenzie Anne": "💎", "Leah Chan": "🎨", "Elle Brooke": "⚽️",
+  "Bunni.Emmie": "🐰", "MsSethi": "🌶️", "Dainty Wilder": "🌸",
+  "Izzybunnies": "🐇", "Funsizedasian": "🍡", "Whitecrush": "🤍",
+  "Lehlani": "🌺", "RealSkyBri": "☁️", "Isla Moon": "🌕",
+  "Audrey & Sadie": "👯‍♀️", "Quinn Finite": "♾️", "Jodielawsonx": "📸",
+  "Avva Ballerina": "🩰", "MsPuiyi": "🌟", "Bigtittygothegg": "🥚",
+  "Peachthot": "🍑", "Avva Addams": "🖤", "LittleSula": "🧸",
+  "Mia Malkova": "🌼", "Bishoujomom": "🌸", "Kimberly Yang": "💮",
+  "mysticbeing": "🔮", "Bronwin Aurora": "🌅", "Reiinapop": "🍭",
+  "hot4lexi": "🔥", "aliceoncam": "🎥", "Emblack": "🖤",
+  "Miss Fetilicious": "🍯", "Angela White": "🤍", "soogsx": "💫",
+  "Emily Lynne": "🌿", "Jasminx": "🌼", "MsFiiire": "🔥",
+  "Railey Diesel": "🛠️", "Beckyxxoo": "💋", "Evie Rain": "🌧️",
+  "f_urbee": "🐝", "Jameliz": "💃", "shinratensei98": "🌀",
+  "zartprickelnd": "✨", "Rae Lil Black": "🕶️", "Lana Rhoades": "💎",
+  "Noemiexlili": "🌙", "Sophia Smith": "📚", "Kittyxkum": "🐱",
+  "Gill Ellis Young": "🎓", "Sarawxp": "🌊", "Stormy_Succubus": "🌩️",
+  "Your_submissive_doll": "🪆", "Rocksylight": "🪨", "Mackenzie Jones": "🎵",
+  "cherrishlulu": "🍒", "Alyssa9": "9️⃣", "Nikanikaa": "🌟",
+  "Olivia Casta": "🌹", "Lady Melamori": "🎀", "Waifumiia": "🧋",
+  "Eva Elfie": "🧚", "Belle Delphine": "🧼", "Amanda Cerny": "🎬",
+  "Sophie Mudd": "🧁", "Sara Underwood": "🌲", "Genesis Mia Lopez": "📖",
+  "Demi Rose": "🌹", "Alice Delish": "🍰", "Rachel Cook": "🍳",
+  "Hana Bunny": "🐰", "Shiftymine": "⛏️", "Izzy Green": "🍀",
+  "sunnyrayxo": "☀️", "Vyvan Le": "🪷", "Potatogodzilla": "🥔",
+  "Natalie Roush": "🚗", "Morgpie": "🥧", "Byoru": "🍡",
+  "Jessica Nigri": "🎮", "Alinity": "🐾", "Miniloonaa": "🌙",
+  "cherrycrush": "🍒", "Vinnegal": "🧪", "Norafawn": "🦌",
+  "Veronica Perasso": "💃", "Haneame": "🎎", "Hime_Tsu": "👑",
+  "Iggy Azalea": "🎤", "Makoshake": "🥤", "Bebahan": "🐝",
+  "Voulezj": "💄", "peachjars": "🍑", "Okichloeo": "🧜‍♀️"
 };
 
 const label = (name) => `${emojiMap[name] || '⭐'}  ${name}`;
@@ -52,7 +77,7 @@ function buildMenu(page = 1) {
   const slice = celebs.slice(start, start + PAGE_SIZE);
 
   const rows = slice.map(c => {
-    const cbData = `pick:${c.slug || slugify(c.name)}`; // always defined
+    const cbData = `pick:${c.slug || slugify(c.name)}`;
     return [Markup.button.callback(label(c.name), cbData)];
   });
 
@@ -73,8 +98,8 @@ bot.action(/^page:(\d+)$/, async (ctx) => {
   const page = Number(ctx.match[1]);
   try {
     await ctx.editMessageReplyMarkup(buildMenu(page).reply_markup);
-  } catch (e) {
-    // If original message not editable (e.g., too old), just send new one
+  } catch {
+    // If original message can’t be edited (too old, etc.), send a new one
     await ctx.reply('Choose a celebrity:', buildMenu(page));
   }
 });
@@ -90,14 +115,20 @@ bot.action(/^pick:(.+)$/, async (ctx) => {
   ]);
 
   try {
-    await ctx.replyWithPhoto({ url: celeb.image }, { caption: celeb.name, reply_markup: buttons.reply_markup });
+    await ctx.replyWithPhoto({ url: celeb.image }, {
+      caption: celeb.name,
+      reply_markup: buttons.reply_markup
+    });
   } catch (err) {
     console.error('send photo error:', err?.message || err);
     await ctx.reply(`${celeb.name}\n${celeb.url}`, buttons);
   }
 });
 
-bot.action(/^back:(\d+)$/, (ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
+bot.action(/^back:(\d+)$/, (ctx) =>
+  ctx.reply('Choose a celebrity:', buildMenu(1))
+);
+
 bot.action('noop', (ctx) => ctx.answerCbQuery(''));
 
 bot.launch();
