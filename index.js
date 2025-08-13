@@ -2,12 +2,13 @@
 const { Telegraf, Markup } = require('telegraf');
 let rawCelebs = require('./celebs.json');
 
-// ----- BOT TOKEN (Railway env var) -----
-if (!process.env.TELEGRAM_BOT_TOKEN) {
-  console.error('Missing TELEGRAM_BOT_TOKEN env var');
+// ----- BOT TOKEN (supports TELEGRAM_BOT_TOKEN or BOT_TOKEN) -----
+const TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
+if (!TOKEN) {
+  console.error('Missing TELEGRAM_BOT_TOKEN (or BOT_TOKEN) env var');
   process.exit(1);
 }
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+const bot = new Telegraf(TOKEN);
 
 // ----- helpers -----
 const slugify = (s) =>
@@ -40,46 +41,35 @@ const emojiMap = {
 };
 const label = (name) => `${emojiMap[name] || '⭐'}  ${name}`;
 
-// pagination builder
 const PAGE_SIZE = 10;
 function buildMenu(page = 1) {
   const start = (page - 1) * PAGE_SIZE;
   const slice = celebs.slice(start, start + PAGE_SIZE);
 
-  const rows = slice.map(c => {
-    const cbData = `pick:${c.slug}`;
-    return [Markup.button.callback(label(c.name), cbData)];
-  });
-
+  const rows = slice.map(c => [Markup.button.callback(label(c.name), `pick:${c.slug}`)]);
   const totalPages = Math.max(1, Math.ceil(celebs.length / PAGE_SIZE));
   const nav = [];
   if (page > 1) nav.push(Markup.button.callback('⬅️ Prev', `page:${page - 1}`));
   nav.push(Markup.button.callback(`Page ${page}/${totalPages}`, 'noop'));
   if (page < totalPages) nav.push(Markup.button.callback('Next ➡️', `page:${page + 1}`));
   rows.push(nav);
-
   return Markup.inlineKeyboard(rows);
 }
 
-// utility: try to edit, else send new & delete old
+// edit-in-place helper (fallback: send new and delete old)
 async function editOrSendNew(ctx, editFn, sendFn) {
   const msgId = ctx.callbackQuery?.message?.message_id;
   try {
     await editFn();
-  } catch (e) {
+  } catch {
     const sent = await sendFn();
-    // delete previous bot message if we have it
-    if (msgId) {
-      try { await ctx.deleteMessage(msgId); } catch {}
-    }
+    if (msgId) { try { await ctx.deleteMessage(msgId); } catch {} }
     return sent;
   }
 }
 
-// ----- commands/actions -----
-bot.start(async (ctx) => {
-  await ctx.reply('Choose a celebrity:', buildMenu(1));
-});
+// actions
+bot.start((ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
 
 bot.action(/^page:(\d+)$/, async (ctx) => {
   const page = Number(ctx.match[1]);
@@ -102,30 +92,15 @@ bot.action(/^pick:(.+)$/, async (ctx) => {
 
   await editOrSendNew(
     ctx,
-    // EDIT the existing message into a photo card
     async () => ctx.editMessageMedia(
-      {
-        type: 'photo',
-        media: celeb.image,         // url or file_id supported
-        caption: celeb.name
-      },
+      { type: 'photo', media: celeb.image, caption: celeb.name },
       { reply_markup: buttons.reply_markup }
     ),
-    // Fallback: send a new photo, then delete the old menu
-    async () =>
-      ctx.replyWithPhoto(
-        { url: celeb.image },
-        { caption: celeb.name, reply_markup: buttons.reply_markup }
-      )
+    async () => ctx.replyWithPhoto({ url: celeb.image }, { caption: celeb.name, reply_markup: buttons.reply_markup })
   );
 });
 
 bot.action(/^back:(\d+)$/, async (ctx) => {
-  await editOrSendNew(
-    ctx,
-    async () => ctx.editMessageCaption(undefined, { reply_markup: undefined }).catch(()=>{}), // ignore
-    async () => {}
-  );
   await editOrSendNew(
     ctx,
     async () => ctx.editMessageText('Choose a celebrity:', buildMenu(1)),
@@ -135,10 +110,8 @@ bot.action(/^back:(\d+)$/, async (ctx) => {
 
 bot.action('noop', (ctx) => ctx.answerCbQuery(''));
 
-// launch
 bot.launch();
 console.log('Bot running…');
 
-// graceful stop (Railway)
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
