@@ -1,147 +1,193 @@
-const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs');
+// index.js
+const { Telegraf, Markup } = require('telegraf');
+const celebs = require('./celebs.json');
 
-const token = process.env.BOT_TOKEN;
-if (!token) { console.error('❌ Missing BOT_TOKEN'); process.exit(1); }
+// ========= BOT TOKEN =========
+// Railway uses the env var you already set (TELEGRAM_BOT_TOKEN)
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
-const bot = new TelegramBot(token, { polling: true });
+// ========= EMOJI MAP =========
+// One emoji per name/slug. If a name isn't listed here, we fall back to ⭐.
+const emojiMap = {
+  // ---- your original 3 ----
+  "Ellie Leen": "🌼",
+  "Xenon": "💜",
+  "Lada Lyumos": "🎭",
+
+  // ---- big batch you added (examples) ----
+  "Alina Becker": "🎀",
+  "Corrina Kopf": "💄",
+  "Mikayla Demaiter": "🏒",
+  "HannahOwo": "🎮",
+  "Amouranth": "🔥",
+  "Octokuro": "🖤",
+  "Selti": "🧊",
+  "Grace Charis": "⛳️",
+  "Vladislava Shelygina": "❄️",
+
+  "Mia Khalifa": "🖋️",
+  "Megnut": "🥜",
+  "Lela Sonha": "🌙",
+  "SweetieFox": "🦊",
+  "Vanessa Bohorquez": "🌴",
+  "Kayla Moody": "✨",
+  "Fetching_Butterflies": "🦋",
+  "Kenzie Anne": "💎",
+  "Leah Chan": "🎨",
+  "Elle Brooke": "⚽️",
+  "Bunni.Emmie": "🐰",
+  "MsSethi": "🌶️",
+  "Dainty Wilder": "🌸",
+  "Izzybunnies": "🐇",
+  "Funsizedasian": "🍡",
+  "Whitecrush": "🤍",
+  "Lehlani": "🌺",
+  "RealSkyBri": "☁️",
+  "Isla Moon": "🌕",
+  "Audrey & Sadie": "👯‍♀️",
+  "Quinn Finite": "♾️",
+  "Jodielawsonx": "📸",
+  "Avva Ballerina": "🩰",
+  "MsPuiyi": "🌟",
+  "Bigtittygothegg": "🥚",
+  "Peachthot": "🍑",
+  "Avva Addams": "🖤",
+  "LittleSula": "🧸",
+  "Mia Malkova": "🌼",
+  "Bishoujomom": "🌸",
+  "Kimberly Yang": "💮",
+  "mysticbeing": "🔮",
+  "Bronwin Aurora": "🌅",
+  "Reiinapop": "🍭",
+  "hot4lexi": "🔥",
+  "aliceoncam": "🎥",
+  "Emblack": "🖤",
+  "Miss Fetilicious": "🍯",
+  "Angela White": "🤍",
+  "soogsx": "💫",
+  "Emily Lynne": "🌿",
+  "Jasminx": "🌼",
+  "MsFiiire": "🔥",
+  "Railey Diesel": "🛠️",
+  "Beckyxxoo": "💋",
+  "Evie Rain": "🌧️",
+  "f_urbee": "🐝",
+  "Jameliz": "💃",
+  "shinratensei98": "🌀",
+  "zartprickelnd": "✨",
+  "Rae Lil Black": "🕶️",
+  "Lana Rhoades": "💎",
+  "Noemiexlili": "🌙",
+  "Sophia Smith": "📚",
+  "Kittyxkum": "🐱",
+  "Gill Ellis Young": "🎓",
+  "Sarawxp": "🌊",
+  "Stormy_Succubus": "🌩️",
+  "Your_submissive_doll": "🪆",
+  "Rocksylight": "🪨",
+  "Mackenzie Jones": "🎵",
+  "cherrishlulu": "🍒",
+  "Alyssa9": "9️⃣",
+  "Nikanikaa": "🌟",
+  "Olivia Casta": "🌹",
+  "Lady Melamori": "🎀",
+  "Waifumiia": "🧋",
+  "Eva Elfie": "🧚",
+  "Belle Delphine": "🧼",
+  "Amanda Cerny": "🎬",
+  "Sophie Mudd": "🧁",
+  "Sara Underwood": "🌲",
+  "Genesis Mia Lopez": "📖",
+  "Demi Rose": "🌹",
+  "Alice Delish": "🍰",
+  "Rachel Cook": "🍳",
+  "Hana Bunny": "🐰",
+  "Shiftymine": "⛏️",
+  "Izzy Green": "🍀",
+  "sunnyrayxo": "☀️",
+  "Vyvan Le": "🪷",
+  "Potatogodzilla": "🥔",
+  "Natalie Roush": "🚗",
+  "Morgpie": "🥧",
+  "Byoru": "🍡",
+  "Jessica Nigri": "🎮",
+  "Alinity": "🐾",
+  "Miniloonaa": "🌙",
+  "cherrycrush": "🍒",
+  "Vinnegal": "🧪",
+  "Norafawn": "🦌",
+  "Veronica Perasso": "💃",
+  "Haneame": "🎎",
+  "Hime_Tsu": "👑",
+  "Iggy Azalea": "🎤",
+  "Makoshake": "🥤",
+  "Bebahan": "🐝",
+  "Voulezj": "💄",
+  "peachjars": "🍑",
+  "Okichloeo": "🧜‍♀️"
+};
+
+// Helper: label with emoji
+const withEmoji = (name) => `${emojiMap[name] || '⭐'}  ${name}`;
+
+// ========= PAGINATION SETTINGS =========
 const PAGE_SIZE = 10;
 
-// ---- data helpers ----
-function loadCelebs() {
-  try {
-    const raw = fs.readFileSync('celebs.json', 'utf8');
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    console.error('Failed to load celebs.json:', e.message);
-    return [];
-  }
-}
-
-function listKeyboard(celebs, page = 1) {
-  const total = celebs.length;
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  page = Math.min(Math.max(1, page), pages);
-
+// Build a page of buttons
+function buildMenu(page = 1) {
   const start = (page - 1) * PAGE_SIZE;
-  const items = celebs.slice(start, start + PAGE_SIZE);
+  const slice = celebs.slice(start, start + PAGE_SIZE);
 
-  const rows = items.map((c, i) => [
-    { text: c.name, callback_data: `celeb:${start + i}:${page}` }
-  ]);
+  const rows = slice.map(c =>
+    [Markup.button.callback(withEmoji(c.name), `pick:${c.slug}`)]
+  );
 
-  rows.push([
-    { text: '⬅️ Prev', callback_data: `page:${Math.max(1, page - 1)}` },
-    { text: `Page ${page}/${pages}`, callback_data: 'noop' },
-    { text: 'Next ➡️', callback_data: `page:${Math.min(pages, page + 1)}` }
-  ]);
+  const totalPages = Math.ceil(celebs.length / PAGE_SIZE);
+  const nav = [];
 
-  return { inline_keyboard: rows };
+  if (page > 1) nav.push(Markup.button.callback('⬅️ Prev', `page:${page - 1}`));
+  nav.push(Markup.button.callback(`Page ${page}/${totalPages}`, 'noop'));
+  if (page < totalPages) nav.push(Markup.button.callback('Next ➡️', `page:${page + 1}`));
+
+  if (nav.length) rows.push(nav);
+  return Markup.inlineKeyboard(rows);
 }
 
-// ---- UI helpers ----
-async function sendMenu(chatId, page = 1) {
-  const celebs = loadCelebs();
-  return bot.sendMessage(chatId, 'Choose a celebrity:', {
-    reply_markup: listKeyboard(celebs, page)
-  });
-}
-
-async function editMenuInPlace(qMessage, page = 1) {
-  const celebs = loadCelebs();
-  const chat_id = qMessage.chat.id;
-  const message_id = qMessage.message_id;
-
-  // edit both text and keyboard to keep it neat
-  try {
-    await bot.editMessageText('Choose a celebrity:', {
-      chat_id,
-      message_id,
-      reply_markup: listKeyboard(celebs, page)
-    });
-  } catch (e) {
-    // Telegram throws “message is not modified” if nothing changed; ignore
-    if (!String(e.message).includes('message is not modified')) {
-      console.error('editMessageText error:', e.message);
-    }
-  }
-}
-
-async function showCeleb(chatId, celeb, page) {
-  const src = celeb.fileId || celeb.url || celeb.photo;
-  const kb = {
-    inline_keyboard: [
-      ...(celeb.bio ? [[{ text: '🔗 View Bio', url: celeb.bio }]] : []),
-      [{ text: '⬅️ Back to list', callback_data: `back:${page}` }]
-    ]
-  };
-  if (!src) {
-    return bot.sendMessage(chatId, celeb.name, { reply_markup: kb });
-  }
-  try {
-    return await bot.sendPhoto(chatId, src, {
-      caption: celeb.name,
-      reply_markup: kb
-    });
-  } catch (e) {
-    console.error('sendPhoto failed:', e.message);
-    return bot.sendMessage(chatId, `${celeb.name}\n(Unable to load image)`, {
-      reply_markup: kb
-    });
-  }
-}
-
-// ---- commands ----
-bot.onText(/\/start|\/list/, (msg) => sendMenu(msg.chat.id, 1));
-
-// ---- callbacks ----
-bot.on('callback_query', async (q) => {
-  const celebs = loadCelebs();
-  const data = q.data;
-  const chatId = q.message.chat.id;
-  const msgId = q.message.message_id;
-
-  try {
-    if (data === 'noop') {
-      return bot.answerCallbackQuery(q.id);
-    }
-
-    // paginate in place (edit the same message)
-    if (data.startsWith('page:')) {
-      const page = Number(data.split(':')[1] || '1');
-      await editMenuInPlace(q.message, page);
-      return bot.answerCallbackQuery(q.id);
-    }
-
-    // celeb selected: delete the menu message, then send photo
-    if (data.startsWith('celeb:')) {
-      const [_, idxStr, pageStr] = data.split(':');
-      const idx = Number(idxStr);
-      const page = Number(pageStr || '1');
-      const celeb = celebs[idx];
-      if (!celeb) {
-        await bot.answerCallbackQuery(q.id, { text: 'Not found', show_alert: true });
-        return;
-      }
-      // remove the menu to avoid stacking
-      try { await bot.deleteMessage(chatId, msgId); } catch {}
-      await showCeleb(chatId, celeb, page);
-      return bot.answerCallbackQuery(q.id);
-    }
-
-    // back from photo: delete the photo message, re-open menu
-    if (data.startsWith('back:')) {
-      const page = Number(data.split(':')[1] || '1');
-      try { await bot.deleteMessage(chatId, msgId); } catch {}
-      await sendMenu(chatId, page);
-      return bot.answerCallbackQuery(q.id);
-    }
-  } catch (err) {
-    console.error('callback_query error:', err);
-    try { await bot.answerCallbackQuery(q.id, { text: 'Error', show_alert: true }); } catch {}
-  }
+// ========= COMMANDS =========
+bot.start((ctx) => {
+  return ctx.reply('Choose a celebrity:', buildMenu(1));
 });
 
-bot.on('polling_error', e => console.error('polling_error:', e.message));
-console.log('✅ Bot running (pagination edits in place).');
+bot.action(/^page:(\d+)$/, (ctx) => {
+  const page = Number(ctx.match[1]);
+  return ctx.editMessageReplyMarkup(buildMenu(page).reply_markup).catch(() => {});
+});
+
+// Show one celeb (photo + “View Bio” + “Back”)
+bot.action(/^pick:(.+)$/, async (ctx) => {
+  const slug = ctx.match[1];
+  const celeb = celebs.find(c => c.slug === slug);
+  if (!celeb) return;
+
+  const buttons = Markup.inlineKeyboard([
+    [Markup.button.url('🔗 View Bio', celeb.url)],
+    [Markup.button.callback('⬅️ Back', `back:1`)]
+  ]);
+
+  await ctx.replyWithPhoto(
+    { url: celeb.image },
+    { caption: celeb.name, reply_markup: buttons.reply_markup }
+  );
+});
+
+bot.action(/^back:(\d+)$/, (ctx) => {
+  const page = Number(ctx.match[1] || 1);
+  return ctx.reply('Choose a celebrity:', buildMenu(page));
+});
+
+// ignore no-op button
+bot.action('noop', (ctx) => ctx.answerCbQuery(''));
+
+// ========= START =========
+bot.launch();
+console.log('Bot running…');
