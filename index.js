@@ -1,156 +1,118 @@
-// index.js
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-// ---------- Config ----------
-const TOKEN = process.env.BOT_TOKEN || 'PASTE_YOUR_BOT_TOKEN_HERE';
+const celebs = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'celebs.json'), 'utf8')
+);
+
+// ── Bot setup ───────────────────────────────────────────────────────────────────
+const token = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
+const bot = new TelegramBot(token, { polling: true });
+
+// ── Paging state (per chat) ─────────────────────────────────────────────────────
 const ITEMS_PER_PAGE = 7;
+const pageByChat = new Map();
 
-// ---------- Data ----------
-const celebsPath = path.join(__dirname, 'celebs.json');
-let celebs = [];
-try {
-  celebs = JSON.parse(fs.readFileSync(celebsPath, 'utf8'));
-} catch (e) {
-  console.error('Failed to read celebs.json:', e.message);
-  process.exit(1);
-}
+// ── Helpers ─────────────────────────────────────────────────────────────────────
+function clamp(n, min, max) { return Math.max(min, Math.min(n, max)); }
 
-// ---------- Bot ----------
-const bot = new TelegramBot(TOKEN, { polling: true });
-
-// Track current page per chat
-const currentPage = new Map();
-
-// /start -> first page
-bot.onText(/\/start/i, (msg) => {
-  const chatId = msg.chat.id;
-  currentPage.set(chatId, 0);
-  sendCelebList(chatId, 0);
-});
-
-// Handle all button clicks
-bot.on('callback_query', async (q) => {
-  try {
-    const chatId = q.message.chat.id;
-    const data = q.data || '';
-
-    if (data.startsWith('page_')) {
-      const page = Number(data.split('_')[1]) || 0;
-      currentPage.set(chatId, page);
-      await sendCelebList(chatId, page);
-    } else if (data.startsWith('celeb_')) {
-      const index = Number(data.split('_')[1]) || 0;
-      await sendCelebCard(chatId, index);
-    } else if (data === 'back_to_list') {
-      const page = currentPage.get(chatId) ?? 0;
-      await sendCelebList(chatId, page);
-    }
-
-    // Answer callback to remove 'loading' spinner
-    bot.answerCallbackQuery(q.id).catch(() => {});
-  } catch (err) {
-    console.error('callback_query error:', err);
-  }
-});
-
-// ---------- UI helpers ----------
-function sendCelebList(chatId, page) {
+function sendPage(chatId, page) {
   const totalPages = Math.max(1, Math.ceil(celebs.length / ITEMS_PER_PAGE));
-  const validPage = Math.min(Math.max(0, page), totalPages - 1);
-  currentPage.set(chatId, validPage);
+  const safePage = clamp(page, 0, totalPages - 1);
+  pageByChat.set(chatId, safePage);
 
-  const startIdx = validPage * ITEMS_PER_PAGE;
-  const pageCelebs = celebs.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+  const start = safePage * ITEMS_PER_PAGE;
+  const pageCelebs = celebs.slice(start, start + ITEMS_PER_PAGE);
 
-  const rows = pageCelebs.map((c, i) => ([
-    { text: c.name, callback_data: `celeb_${startIdx + i}` }
+  const keyboard = pageCelebs.map((c, i) => ([
+    { text: c.name, callback_data: `celeb_${start + i}` }
   ]));
 
-  const nav = [];
-  if (validPage > 0) nav.push({ text: '⬅ Prev', callback_data: `page_${validPage - 1}` });
-  nav.push({ text: `Page ${validPage + 1}/${totalPages}`, callback_data: `page_${validPage}` });
-  if (validPage < totalPages - 1) nav.push({ text: 'Next ➡', callback_data: `page_${validPage + 1}` });
-  rows.push(nav);
+  const navRow = [];
+  if (safePage > 0) navRow.push({ text: '⬅ Prev', callback_data: `page_${safePage - 1}` });
+  navRow.push({ text: `Page ${safePage + 1}/${totalPages}`, callback_data: 'noop' });
+  if (safePage < totalPages - 1) navRow.push({ text: 'Next ➡', callback_data: `page_${safePage + 1}` });
+  keyboard.push(navRow);
 
-  return bot.sendMessage(chatId, 'Choose a creator:', {
-    reply_markup: { inline_keyboard: rows }
+  bot.sendMessage(chatId, 'Choose a creator:', {
+    reply_markup: { inline_keyboard: keyboard }
   });
 }
 
-async function sendCelebCard(chatId, index) {
+function sendCeleb(chatId, index) {
   const c = celebs[index];
-  if (!c) return bot.sendMessage(chatId, 'Not found.');
+  if (!c) return bot.sendMessage(chatId, 'That item is missing.');
 
-  const caption = `${c.name}`;
-  const keyboard = {
-    inline_keyboard: [
-      [{ text: '🔗 View Leaks', url: c.bio }],
-      [{ text: '⬅ Back', callback_data: 'back_to_list' }]
-    ]
-  };
+  const caption = c.name;
+  const buttons = [];
 
-  // prefer Telegram file_id (instant) then fallback to URL
-  if (c.file_id) {
-    return bot.sendPhoto(chatId, c.file_id, { caption, reply_markup: keyboard })
-      .catch(() => bot.sendMessage(chatId, `${caption}\n${c.bio}`, { reply_markup: keyboard }));
+  // IMPORTANT: link comes from THIS celeb only — no fallback or globals.
+  if (c.bio && typeof c.bio === 'string' && c.bio.trim().length > 0) {
+    buttons.push([{ text: '🔗 View Leaks', url: c.bio }]);
   }
-  if (c.url) {
-    return bot.sendPhoto(chatId, c.url, { caption, reply_markup: keyboard })
-      .catch(() => bot.sendMessage(chatId, `${caption}\n${c.bio}`, { reply_markup: keyboard }));
+
+  // back button to the same page user came from
+  const page = pageByChat.get(chatId) ?? Math.floor(index / ITEMS_PER_PAGE);
+  buttons.push([{ text: '⬅ Back', callback_data: `page_${page}` }]);
+
+  const opts = { caption, reply_markup: { inline_keyboard: buttons } };
+
+  if (c.file_id && typeof c.file_id === 'string') {
+    return bot.sendPhoto(chatId, c.file_id, opts).catch(() =>
+      bot.sendMessage(chatId, 'Could not load the photo for this item.')
+    );
   }
-  return bot.sendMessage(chatId, `${caption}\n${c.bio}`, { reply_markup: keyboard });
+  if (c.url && typeof c.url === 'string') {
+    return bot.sendPhoto(chatId, c.url, opts).catch(() =>
+      bot.sendMessage(chatId, 'Could not load the photo for this item.')
+    );
+  }
+  return bot.sendMessage(chatId, caption, opts);
 }
 
-// ---------- Inbound media → return file_id ----------
-bot.on('message', async (msg) => {
-  try {
-    const chatId = msg.chat.id;
+// ── Commands / Callbacks ────────────────────────────────────────────────────────
+bot.onText(/\/start|\/menu/, (msg) => {
+  pageByChat.set(msg.chat.id, 0);
+  sendPage(msg.chat.id, 0);
+});
 
-    // Photos (Telegram sends an array of sizes; last is the largest)
-    if (msg.photo && Array.isArray(msg.photo) && msg.photo.length) {
-      const best = msg.photo[msg.photo.length - 1];
-      await replyWithFileInfo(chatId, best.file_id);
-      return;
-    }
+bot.on('callback_query', (q) => {
+  const chatId = q.message.chat.id;
+  const data = q.data || '';
 
-    // Image sent as a document (to avoid compression)
-    if (msg.document && msg.document.mime_type && msg.document.mime_type.startsWith('image/')) {
-      await replyWithFileInfo(chatId, msg.document.file_id);
-      return;
-    }
-
-    // Albums: handled because each item arrives as a separate message with its own file_id.
-    // Nothing else to do here.
-
-  } catch (err) {
-    console.error('message handler error:', err);
+  if (data.startsWith('page_')) {
+    const page = parseInt(data.split('_')[1], 10) || 0;
+    return sendPage(chatId, page);
+  }
+  if (data.startsWith('celeb_')) {
+    const idx = parseInt(data.split('_')[1], 10);
+    return sendCeleb(chatId, idx);
+  }
+  if (data === 'noop') {
+    return bot.answerCallbackQuery(q.id);
   }
 });
 
-async function replyWithFileInfo(chatId, fileId) {
+// ── Optional: return file_id when users send photos (to help you fill celebs.json)
+bot.on('photo', async (msg) => {
   try {
-    const file = await bot.getFile(fileId);
-    const filePath = file.file_path; // e.g. photos/file_12345.jpg
-    const directUrl = `https://api.telegram.org/file/bot${TOKEN}/${filePath}`;
+    const best = msg.photo?.[msg.photo.length - 1];
+    if (!best) throw new Error('No photo sizes');
 
-    const text =
-      'Got it! Here is the info you can paste into celebs.json:\n' +
-      '```\n' +
-      `"file_id": "${fileId}"\n` +
-      '```\n' +
-      `Direct file URL (optional):\n${directUrl}`;
+    const file = await bot.getFile(best.file_id);
+    const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
-    await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
-  } catch (e) {
-    console.error('getFile error:', e.message);
-    await bot.sendMessage(chatId, 'Sorry, I could not read that photo.');
+    await bot.sendMessage(
+      msg.chat.id,
+      `Got it! Here is the snippet you can paste into celebs.json:\n\n` +
+      '```json\n' +
+      JSON.stringify({ file_id: best.file_id }, null, 2) +
+      '\n```\n' +
+      `Direct file URL (optional):\n${fileUrl}`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch {
+    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that photo.');
   }
-}
-
-// ---------- Errors ----------
-bot.on('polling_error', (err) => {
-  // Avoid noisy stack — show concise reason
-  console.error('polling_error:', err?.response?.body || err.message || err);
 });
