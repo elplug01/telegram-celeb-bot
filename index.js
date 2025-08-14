@@ -1,8 +1,8 @@
 // index.js
 const { Telegraf, Markup } = require('telegraf');
-const rawCelebs = require('./celebs.json');
+let rawCelebs = require('./celebs.json');
 
-// ----- BOT TOKEN (supports TELEGRAM_BOT_TOKEN or BOT_TOKEN) -----
+// ---- TOKEN (Railway) ----
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
 if (!TOKEN) {
   console.error('Missing TELEGRAM_BOT_TOKEN (or BOT_TOKEN) env var');
@@ -10,7 +10,7 @@ if (!TOKEN) {
 }
 const bot = new Telegraf(TOKEN);
 
-// ----- helpers -----
+// ---- helpers ----
 const slugify = (s) =>
   String(s || '')
     .toLowerCase()
@@ -19,13 +19,10 @@ const slugify = (s) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 45);
 
-// Normalize celebs (ensure slug exists)
+// normalize celebs
 const celebs = (rawCelebs || [])
   .filter(c => c && c.name)
-  .map(c => ({
-    ...c,
-    slug: c.slug ? String(c.slug) : slugify(c.name)
-  }));
+  .map(c => ({ ...c, slug: c.slug ? String(c.slug) : slugify(c.name) }));
 
 const PAGE_SIZE = 10;
 
@@ -34,30 +31,30 @@ function buildMenu(page = 1) {
   const slice = celebs.slice(start, start + PAGE_SIZE);
 
   const rows = slice.map(c => [Markup.button.callback(c.name, `pick:${c.slug}`)]);
-
   const totalPages = Math.max(1, Math.ceil(celebs.length / PAGE_SIZE));
   const nav = [];
   if (page > 1) nav.push(Markup.button.callback('⬅️ Prev', `page:${page - 1}`));
   nav.push(Markup.button.callback(`Page ${page}/${totalPages}`, 'noop'));
   if (page < totalPages) nav.push(Markup.button.callback('Next ➡️', `page:${page + 1}`));
   rows.push(nav);
-
   return Markup.inlineKeyboard(rows);
 }
 
-// Edit the same message when possible; else send new and delete old
+// edit-in-place helper: try edit; if not possible, send new & delete old
 async function editOrSendNew(ctx, editFn, sendFn) {
   const msgId = ctx.callbackQuery?.message?.message_id;
   try {
     await editFn();
   } catch {
     const sent = await sendFn();
-    if (msgId) { try { await ctx.deleteMessage(msgId); } catch {} }
+    if (msgId) {
+      try { await ctx.deleteMessage(msgId); } catch {}
+    }
     return sent;
   }
 }
 
-// ----- COMMANDS / ACTIONS -----
+// ---- commands / actions ----
 bot.start((ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
 
 bot.action(/^page:(\d+)$/, async (ctx) => {
@@ -74,48 +71,24 @@ bot.action(/^pick:(.+)$/, async (ctx) => {
   const celeb = celebs.find(c => c.slug === slug);
   if (!celeb) return ctx.answerCbQuery('Not found');
 
-  const mediaId = celeb.file_id || celeb.image; // prefer Telegram file_id if you have it
-
   const buttons = Markup.inlineKeyboard([
     [Markup.button.url('🔗 View Leaks', celeb.url)],
     [Markup.button.callback('⬅️ Back', 'back:1')]
   ]);
 
-  // Try editing in-place to a photo; fallback to sending a fresh photo.
+  // Prefer Telegram CDN via file_id; fallback to external URL
+  const media = celeb.file_id
+    ? { type: 'photo', media: celeb.file_id, caption: celeb.name }
+    : { type: 'photo', media: celeb.image, caption: celeb.name };
+
   await editOrSendNew(
     ctx,
-    async () => ctx.editMessageMedia(
-      { type: 'photo', media: mediaId, caption: celeb.name },
-      { reply_markup: buttons.reply_markup }
-    ),
-    async () => ctx.replyWithPhoto(
-      typeof mediaId === 'string' && mediaId.startsWith('http')
-        ? { url: mediaId }
-        : mediaId,
-      { caption: celeb.name, reply_markup: buttons.reply_markup }
-    )
-  ).catch(async () => {
-    // Final fallback: text only (no URL preview)
-    await editOrSendNew(
-      ctx,
-      async () => ctx.editMessageText(
-        `**${celeb.name}**`,
-        {
-          ...buttons,
-          parse_mode: 'Markdown',
-          disable_web_page_preview: true
-        }
-      ),
-      async () => ctx.reply(
-        `**${celeb.name}**`,
-        {
-          ...buttons,
-          parse_mode: 'Markdown',
-          disable_web_page_preview: true
-        }
-      )
-    );
-  });
+    async () => ctx.editMessageMedia(media, { reply_markup: buttons.reply_markup }),
+    async () =>
+      celeb.file_id
+        ? ctx.replyWithPhoto(celeb.file_id, { caption: celeb.name, reply_markup: buttons.reply_markup })
+        : ctx.replyWithPhoto({ url: celeb.image }, { caption: celeb.name, reply_markup: buttons.reply_markup })
+  );
 });
 
 bot.action(/^back:(\d+)$/, async (ctx) => {
@@ -128,23 +101,32 @@ bot.action(/^back:(\d+)$/, async (ctx) => {
 
 bot.action('noop', (ctx) => ctx.answerCbQuery(''));
 
-// --- Helper: reply with file_id when you send a photo to the bot ---
+// ---- NEW: handlers to get file_id when you send media to the bot ----
+
+// Photo sent as a photo (this is what you want)
 bot.on('photo', async (ctx) => {
-  try {
-    const sizes = ctx.message.photo || [];
-    const best = sizes[sizes.length - 1];
-    if (best?.file_id) {
-      await ctx.reply(`file_id:\n\`${best.file_id}\`\n\nPaste this into celebs.json as "file_id" for that person.`, {
-        parse_mode: 'Markdown',
-        disable_web_page_preview: true
-      });
-    }
-  } catch {}
+  // the last size is the largest; grab its file_id
+  const sizes = ctx.message.photo;
+  const fid = sizes[sizes.length - 1].file_id;
+  await ctx.reply(`file_id:\n\`${fid}\``, { parse_mode: 'Markdown' });
+});
+
+// Telegram GIF/MP4 animations
+bot.on('animation', async (ctx) => {
+  const fid = ctx.message.animation.file_id;
+  await ctx.reply(`animation file_id:\n\`${fid}\``, { parse_mode: 'Markdown' });
+});
+
+// Image sent as a document (some clients do this)
+bot.on('document', async (ctx) => {
+  const doc = ctx.message.document;
+  if (doc && doc.mime_type && doc.mime_type.startsWith('image/')) {
+    await ctx.reply(`image document file_id:\n\`${doc.file_id}\``, { parse_mode: 'Markdown' });
+  }
 });
 
 bot.launch();
 console.log('Bot running…');
 
-// Graceful stop for Railway
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
