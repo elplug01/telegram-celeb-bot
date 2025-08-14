@@ -2,15 +2,15 @@
 const { Telegraf, Markup } = require('telegraf');
 const rawCelebs = require('./celebs.json');
 
-// ---- BOT TOKEN (Railway env var) ----
+// ---- TOKEN (Railway env) ----
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
 if (!TOKEN) {
-  console.error('Missing TELEGRAM_BOT_TOKEN (or BOT_TOKEN) env var');
+  console.error('Missing TELEGRAM_BOT_TOKEN or BOT_TOKEN env var');
   process.exit(1);
 }
 const bot = new Telegraf(TOKEN);
 
-// ---- utils ----
+// ---- helpers ----
 const slugify = (s) =>
   String(s || '')
     .toLowerCase()
@@ -24,14 +24,18 @@ const celebs = (rawCelebs || [])
   .filter(c => c && c.name)
   .map(c => ({ ...c, slug: c.slug ? String(c.slug) : slugify(c.name) }));
 
-// ---- menu + paging ----
 const PAGE_SIZE = 10;
+
+// Remember last “menu message” per chat so we can delete it
+const lastMenuMsgId = new Map(); // chatId -> message_id
 
 function buildMenu(page = 1) {
   const start = (page - 1) * PAGE_SIZE;
   const slice = celebs.slice(start, start + PAGE_SIZE);
 
-  const rows = slice.map(c => [Markup.button.callback(c.name, `pick:${c.slug}`)]);
+  const rows = slice.map(c => [
+    Markup.button.callback(c.name, `pick:${c.slug}`)
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(celebs.length / PAGE_SIZE));
   const nav = [];
@@ -43,71 +47,85 @@ function buildMenu(page = 1) {
   return Markup.inlineKeyboard(rows);
 }
 
-// edit-in-place helper (fallback: send new and delete old)
-async function editOrSendNew(ctx, editFn, sendFn) {
-  const msgId = ctx.callbackQuery?.message?.message_id;
-  try {
-    await editFn();
-  } catch {
-    const sent = await sendFn();
-    if (msgId) { try { await ctx.deleteMessage(msgId); } catch {} }
-    return sent;
-  }
+async function sendMenu(ctx, page = 1) {
+  const sent = await ctx.reply('Choose a celebrity:', buildMenu(page));
+  lastMenuMsgId.set(ctx.chat.id, sent.message_id);
+  return sent;
 }
 
-// ---- handlers ----
-bot.start((ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
+async function deleteIfExists(ctx, messageId) {
+  if (!messageId) return;
+  try { await ctx.telegram.deleteMessage(ctx.chat.id, messageId); } catch {}
+}
 
+// ---- commands / actions ----
+bot.start(async (ctx) => {
+  await sendMenu(ctx, 1);
+});
+
+// fast paging: edit when possible, otherwise send new and delete old
 bot.action(/^page:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery(); // clear spinner fast
+  await ctx.answerCbQuery(); // clear the spinner immediately
   const page = Number(ctx.match[1]);
-  await editOrSendNew(
-    ctx,
-    async () => ctx.editMessageReplyMarkup(buildMenu(page).reply_markup),
-    async () => ctx.reply('Choose a celebrity:', buildMenu(page))
-  );
+  try {
+    await ctx.editMessageReplyMarkup(buildMenu(page).reply_markup);
+  } catch {
+    // if we can't edit (too old / different message), send new and delete old menu
+    const oldId = lastMenuMsgId.get(ctx.chat.id);
+    const sent = await sendMenu(ctx, page);
+    if (oldId && oldId !== sent.message_id) await deleteIfExists(ctx, oldId);
+  }
 });
 
 bot.action(/^pick:(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery(); // clear spinner fast
+  await ctx.answerCbQuery(); // clear spinner
+
   const slug = ctx.match[1];
   const celeb = celebs.find(c => c.slug === slug);
-  if (!celeb) return; // already answered
+  if (!celeb) return;
 
   const buttons = Markup.inlineKeyboard([
     [Markup.button.url('🔗 View Leaks', celeb.url)],
     [Markup.button.callback('⬅️ Back', 'back:1')]
   ]);
 
-  // try to edit in place to a photo; if it fails, send a new photo message
-  await editOrSendNew(
-    ctx,
-    async () =>
-      ctx.editMessageMedia(
-        { type: 'photo', media: celeb.image, caption: celeb.name },
-        { reply_markup: buttons.reply_markup }
-      ),
-    async () =>
-      ctx.replyWithPhoto({ url: celeb.image }, { caption: celeb.name, reply_markup: buttons.reply_markup })
-  );
+  // Delete the last menu (if we can), then send the photo
+  const oldMenuId = lastMenuMsgId.get(ctx.chat.id);
+
+  // Try to send photo; if it fails, fall back to text + link
+  try {
+    const sent = await ctx.replyWithPhoto(
+      { url: celeb.image },
+      { caption: celeb.name, reply_markup: buttons.reply_markup }
+    );
+    if (oldMenuId) await deleteIfExists(ctx, oldMenuId);
+    // store this as the “last content” so Back can delete it
+    lastMenuMsgId.set(ctx.chat.id, sent.message_id);
+  } catch (err) {
+    console.error('Photo send failed, falling back to text:', err?.message || err);
+    const sent = await ctx.reply(
+      `${celeb.name}\n${celeb.url}`,
+      buttons
+    );
+    if (oldMenuId) await deleteIfExists(ctx, oldMenuId);
+    lastMenuMsgId.set(ctx.chat.id, sent.message_id);
+  }
 });
 
 bot.action(/^back:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery(); // clear spinner fast
-  await editOrSendNew(
-    ctx,
-    async () => ctx.editMessageText('Choose a celebrity:', buildMenu(1)),
-    async () => ctx.reply('Choose a celebrity:', buildMenu(1))
-  );
+  await ctx.answerCbQuery(); // clear spinner
+  // delete the current (photo/text) message and show menu page 1
+  const currentId = ctx.callbackQuery?.message?.message_id;
+  if (currentId) await deleteIfExists(ctx, currentId);
+  await sendMenu(ctx, 1);
 });
 
-bot.action('noop', async (ctx) => {
-  await ctx.answerCbQuery(); // just dismiss spinner
-});
+bot.action('noop', (ctx) => ctx.answerCbQuery(''));
 
+// ---- launch ----
 bot.launch();
 console.log('Bot running…');
 
-// graceful shutdown for Railway
+// Graceful stop (Railway)
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
