@@ -1,7 +1,7 @@
 {
   "name": "telegram-celeb-bot",
   "version": "1.0.0",
-  "description": "Telegram bot with emojis, pagination, and back/buttons",
+  "description": "Telegram bot with paging and photo previews",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
