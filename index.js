@@ -10,26 +10,17 @@ if (!TOKEN) {
 }
 const bot = new Telegraf(TOKEN);
 
-// ----- helpers -----
-const slugify = (s) =>
-  String(s || '')
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 45);
-
 // normalize celebs
-const celebs = (rawCelebs || [])
-  .filter(c => c && c.name)
-  .map(c => ({ ...c, slug: c.slug ? String(c.slug) : slugify(c.name) }));
+const celebs = (rawCelebs || []).filter(c => c && c.name);
 
+// page settings
 const PAGE_SIZE = 10;
+
+// build menu
 function buildMenu(page = 1) {
   const start = (page - 1) * PAGE_SIZE;
   const slice = celebs.slice(start, start + PAGE_SIZE);
-
-  const rows = slice.map(c => [Markup.button.callback(c.name, `pick:${c.slug}`)]);
+  const rows = slice.map(c => [Markup.button.callback(c.name, `pick:${c.name}`)]);
   const totalPages = Math.max(1, Math.ceil(celebs.length / PAGE_SIZE));
   const nav = [];
   if (page > 1) nav.push(Markup.button.callback('⬅️ Prev', `page:${page - 1}`));
@@ -39,7 +30,7 @@ function buildMenu(page = 1) {
   return Markup.inlineKeyboard(rows);
 }
 
-// edit-in-place helper (fallback: send new + delete old)
+// helper to edit or send new
 async function editOrSendNew(ctx, editFn, sendFn) {
   const msgId = ctx.callbackQuery?.message?.message_id;
   try {
@@ -51,9 +42,10 @@ async function editOrSendNew(ctx, editFn, sendFn) {
   }
 }
 
-// ---------- commands / actions ----------
+// start
 bot.start((ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
 
+// pagination
 bot.action(/^page:(\d+)$/, async (ctx) => {
   const page = Number(ctx.match[1]);
   await editOrSendNew(
@@ -63,36 +55,43 @@ bot.action(/^page:(\d+)$/, async (ctx) => {
   );
 });
 
+// pick celeb
 bot.action(/^pick:(.+)$/, async (ctx) => {
-  const slug = ctx.match[1];
-  const celeb = celebs.find(c => c.slug === slug);
+  const name = ctx.match[1];
+  const celeb = celebs.find(c => c.name === name);
   if (!celeb) return ctx.answerCbQuery('Not found');
 
-  const leaksLink = celeb.bio || celeb.url;   // <-- use Rentry when present
-
   const buttons = Markup.inlineKeyboard([
-    [Markup.button.url('🔗 View Leaks', leaksLink)],
+    [Markup.button.url('🔗 View Leaks', celeb.url)],
     [Markup.button.callback('⬅️ Back', 'back:1')]
   ]);
 
-  const imageUrl = celeb.image || celeb.url;
-  const media = celeb.file_id
-    ? { type: 'photo', media: celeb.file_id, caption: celeb.name }
-    : { type: 'photo', media: imageUrl, caption: celeb.name };
-
   await editOrSendNew(
     ctx,
-    async () => ctx.editMessageMedia(media, { reply_markup: buttons.reply_markup }),
     async () => {
       if (celeb.file_id) {
-        return ctx.replyWithPhoto(celeb.file_id, { caption: celeb.name, reply_markup: buttons.reply_markup });
+        await ctx.editMessageMedia(
+          { type: 'photo', media: celeb.file_id, caption: celeb.name },
+          { reply_markup: buttons.reply_markup }
+        );
       } else {
-        return ctx.replyWithPhoto({ url: imageUrl }, { caption: celeb.name, reply_markup: buttons.reply_markup });
+        await ctx.editMessageMedia(
+          { type: 'photo', media: celeb.image, caption: celeb.name },
+          { reply_markup: buttons.reply_markup }
+        );
+      }
+    },
+    async () => {
+      if (celeb.file_id) {
+        await ctx.replyWithPhoto(celeb.file_id, { caption: celeb.name, reply_markup: buttons.reply_markup });
+      } else {
+        await ctx.replyWithPhoto({ url: celeb.image }, { caption: celeb.name, reply_markup: buttons.reply_markup });
       }
     }
   );
 });
 
+// back button
 bot.action(/^back:(\d+)$/, async (ctx) => {
   await editOrSendNew(
     ctx,
@@ -103,27 +102,9 @@ bot.action(/^back:(\d+)$/, async (ctx) => {
 
 bot.action('noop', (ctx) => ctx.answerCbQuery(''));
 
-// ---------- file_id helper (DM only) ----------
-bot.on('photo', async (ctx) => {
-  // only reply in private chats to avoid noise in groups
-  if (ctx.chat?.type !== 'private') return;
-  const sizes = ctx.message.photo;
-  const best = sizes[sizes.length - 1]; // largest size
-  const fileId = best.file_id;
-  await ctx.reply(`file_id:\n${fileId}`);
-});
-
-// if someone sends an image *as a file* (document)
-bot.on('document', async (ctx) => {
-  if (ctx.chat?.type !== 'private') return;
-  const doc = ctx.message.document;
-  if (doc?.mime_type?.startsWith('image/')) {
-    await ctx.reply(`file_id (image document):\n${doc.file_id}`);
-  }
-});
-
 bot.launch();
 console.log('Bot running…');
 
+// stop signals
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
