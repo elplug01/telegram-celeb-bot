@@ -24,7 +24,7 @@ const celebs = (rawCelebs || [])
   .filter(c => c && c.name)
   .map(c => ({ ...c, slug: c.slug ? String(c.slug) : slugify(c.name) }));
 
-// label without emojis
+// plain label (no emojis)
 const label = (name) => name;
 
 // pagination
@@ -61,6 +61,7 @@ async function editOrSendNew(ctx, editFn, sendFn) {
 bot.start((ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
 
 bot.action(/^page:(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery(); // clear "Loading…"
   const page = Number(ctx.match[1]);
   await editOrSendNew(
     ctx,
@@ -70,6 +71,7 @@ bot.action(/^page:(\d+)$/, async (ctx) => {
 });
 
 bot.action(/^pick:(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery(); // clear "Loading…"
   const slug = ctx.match[1];
   const celeb = celebs.find(c => c.slug === slug);
   if (!celeb) return ctx.answerCbQuery('Not found');
@@ -95,6 +97,7 @@ bot.action(/^pick:(.+)$/, async (ctx) => {
 });
 
 bot.action(/^back:(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery(); // clear "Loading…"
   await editOrSendNew(
     ctx,
     async () => ctx.editMessageText('Choose a celebrity:', buildMenu(1)),
@@ -103,6 +106,7 @@ bot.action(/^back:(\d+)$/, async (ctx) => {
 });
 
 bot.action('noop', (ctx) => ctx.answerCbQuery(''));
+
 bot.launch();
 console.log('Bot running…');
 
