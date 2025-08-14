@@ -21,13 +21,12 @@ const slugify = (s) =>
 
 // normalize celebs
 const celebs = (rawCelebs || [])
-  .filter(c => c && c.name)
+  .filter(c => c && c.name && (c.image || c.url))
   .map(c => ({ ...c, slug: c.slug ? String(c.slug) : slugify(c.name) }));
 
-// plain label (no emojis)
 const label = (name) => name;
 
-// pagination
+// pagination markup
 const PAGE_SIZE = 10;
 function buildMenu(page = 1) {
   const start = (page - 1) * PAGE_SIZE;
@@ -45,64 +44,58 @@ function buildMenu(page = 1) {
   return Markup.inlineKeyboard(rows);
 }
 
-// edit-in-place helper (fallback: send new + delete old)
-async function editOrSendNew(ctx, editFn, sendFn) {
-  const msgId = ctx.callbackQuery?.message?.message_id;
-  try {
-    await editFn();
-  } catch {
-    const sent = await sendFn();
-    if (msgId) { try { await ctx.deleteMessage(msgId); } catch {} }
-    return sent;
-  }
-}
-
-// ---- handlers ----
+// ---- routes ----
 bot.start((ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
 
 bot.action(/^page:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery(); // clear "Loading…"
+  await ctx.answerCbQuery(); // clear spinner
   const page = Number(ctx.match[1]);
-  await editOrSendNew(
-    ctx,
-    async () => ctx.editMessageReplyMarkup(buildMenu(page).reply_markup),
-    async () => ctx.reply('Choose a celebrity:', buildMenu(page))
-  );
+
+  try {
+    await ctx.editMessageReplyMarkup(buildMenu(page).reply_markup);
+  } catch {
+    // if we can't edit (e.g., old msg), just send a new one and delete the old
+    const oldId = ctx.callbackQuery?.message?.message_id;
+    const m = await ctx.reply('Choose a celebrity:', buildMenu(page));
+    if (oldId) { try { await ctx.deleteMessage(oldId); } catch {} }
+    return m;
+  }
 });
 
 bot.action(/^pick:(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery(); // clear "Loading…"
+  await ctx.answerCbQuery(); // instant feedback
+
   const slug = ctx.match[1];
   const celeb = celebs.find(c => c.slug === slug);
-  if (!celeb) return ctx.answerCbQuery('Not found');
+  if (!celeb) return ctx.reply('Not found. Try again.');
+
+  // remove the menu so we always show the photo fresh
+  const menuId = ctx.callbackQuery?.message?.message_id;
+  if (menuId) { try { await ctx.deleteMessage(menuId); } catch {} }
 
   const buttons = Markup.inlineKeyboard([
     [Markup.button.url('🔗 View Bio', celeb.url)],
     [Markup.button.callback('⬅️ Back', 'back:1')]
   ]);
 
-  await editOrSendNew(
-    ctx,
-    async () =>
-      ctx.editMessageMedia(
-        { type: 'photo', media: celeb.image, caption: celeb.name },
-        { reply_markup: buttons.reply_markup }
-      ),
-    async () =>
-      ctx.replyWithPhoto(
-        { url: celeb.image },
-        { caption: celeb.name, reply_markup: buttons.reply_markup }
-      )
-  );
+  try {
+    // prefer URL field "image"; fall back to sending link text if needed
+    await ctx.replyWithPhoto(
+      celeb.image ? { url: celeb.image } : { url: celeb.url },
+      { caption: celeb.name, reply_markup: buttons.reply_markup }
+    );
+  } catch (err) {
+    console.error('replyWithPhoto failed:', err?.message || err);
+    await ctx.reply(`${celeb.name}\nOpen bio`, { reply_markup: buttons.reply_markup });
+  }
 });
 
 bot.action(/^back:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery(); // clear "Loading…"
-  await editOrSendNew(
-    ctx,
-    async () => ctx.editMessageText('Choose a celebrity:', buildMenu(1)),
-    async () => ctx.reply('Choose a celebrity:', buildMenu(1))
-  );
+  await ctx.answerCbQuery();
+  // delete the photo card message, then re-send the menu (page 1)
+  const cardId = ctx.callbackQuery?.message?.message_id;
+  if (cardId) { try { await ctx.deleteMessage(cardId); } catch {} }
+  return ctx.reply('Choose a celebrity:', buildMenu(1));
 });
 
 bot.action('noop', (ctx) => ctx.answerCbQuery(''));
@@ -110,6 +103,6 @@ bot.action('noop', (ctx) => ctx.answerCbQuery(''));
 bot.launch();
 console.log('Bot running…');
 
-// graceful stop (Railway)
+// graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
