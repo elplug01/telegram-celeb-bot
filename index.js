@@ -1,79 +1,108 @@
+// index.js
 const { Telegraf, Markup } = require('telegraf');
-require('dotenv').config();
+const rawCelebs = require('./celebs.json');
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+// ---- BOT TOKEN (Railway env var) ----
+const TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
+if (!TOKEN) {
+  console.error('Missing TELEGRAM_BOT_TOKEN (or BOT_TOKEN) env var');
+  process.exit(1);
+}
+const bot = new Telegraf(TOKEN);
 
-const celebrities = [
-    { name: 'Mia Khalifa', url: 'https://rentry.co/mia-khalifa' },
-    { name: 'Megnut', url: 'https://rentry.co/megnut' },
-    { name: 'Lela Sonha', url: 'https://rentry.co/lela-sonha' },
-    { name: 'SweetieFox', url: 'https://rentry.co/sweetiefox' },
-    { name: 'Vanessa Bohorquez', url: 'https://rentry.co/vanessa-bohorquez' },
-    { name: 'Kayla Moody', url: 'https://rentry.co/kayla-moody' },
-    { name: 'Fetching_Butterflies', url: 'https://rentry.co/fetching-butterflies' },
-    { name: 'Kenzie Anne', url: 'https://rentry.co/kenzie-anne' },
-    { name: 'Leah Chan', url: 'https://rentry.co/leah-chan' },
-    { name: 'Elle Brooke', url: 'https://rentry.co/elle-brooke' },
-    { name: 'Belle Delphine', url: 'https://rentry.co/belle-delphine' }
-];
+// ---- utils ----
+const slugify = (s) =>
+  String(s || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 45);
 
-const ITEMS_PER_PAGE = 10;
+// normalize celebs
+const celebs = (rawCelebs || [])
+  .filter(c => c && c.name)
+  .map(c => ({ ...c, slug: c.slug ? String(c.slug) : slugify(c.name) }));
 
-bot.start((ctx) => {
-    sendCelebrityList(ctx, 1);
-});
+// ---- menu + paging ----
+const PAGE_SIZE = 10;
 
-function sendCelebrityList(ctx, page) {
-    const startIndex = (page - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
-    const celebPage = celebrities.slice(startIndex, endIndex);
+function buildMenu(page = 1) {
+  const start = (page - 1) * PAGE_SIZE;
+  const slice = celebs.slice(start, start + PAGE_SIZE);
 
-    const buttons = celebPage.map(c => [Markup.button.callback(c.name, `pick:${c.name}`)]);
+  const rows = slice.map(c => [Markup.button.callback(c.name, `pick:${c.slug}`)]);
 
-    if (page > 1) {
-        buttons.push([Markup.button.callback('⬅️ Prev', `page:${page - 1}`)]);
-    }
-    if (endIndex < celebrities.length) {
-        buttons.push([Markup.button.callback('Next ➡️', `page:${page + 1}`)]);
-    }
+  const totalPages = Math.max(1, Math.ceil(celebs.length / PAGE_SIZE));
+  const nav = [];
+  if (page > 1) nav.push(Markup.button.callback('⬅️ Prev', `page:${page - 1}`));
+  nav.push(Markup.button.callback(`Page ${page}/${totalPages}`, 'noop'));
+  if (page < totalPages) nav.push(Markup.button.callback('Next ➡️', `page:${page + 1}`));
+  rows.push(nav);
 
-    ctx.reply(`Choose a celebrity:`, Markup.inlineKeyboard(buttons));
+  return Markup.inlineKeyboard(rows);
 }
 
-bot.action(/page:(\d+)/, (ctx) => {
-    const page = parseInt(ctx.match[1]);
-    ctx.editMessageText(`Choose a celebrity:`, Markup.inlineKeyboard(
-        getCelebrityButtons(page)
-    ));
-});
-
-function getCelebrityButtons(page) {
-    const startIndex = (page - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
-    const celebPage = celebrities.slice(startIndex, endIndex);
-
-    const buttons = celebPage.map(c => [Markup.button.callback(c.name, `pick:${c.name}`)]);
-
-    if (page > 1) {
-        buttons.push([Markup.button.callback('⬅️ Prev', `page:${page - 1}`)]);
-    }
-    if (endIndex < celebrities.length) {
-        buttons.push([Markup.button.callback('Next ➡️', `page:${page + 1}`)]);
-    }
-    return buttons;
+// edit-in-place helper (fallback: send new and delete old)
+async function editOrSendNew(ctx, editFn, sendFn) {
+  const msgId = ctx.callbackQuery?.message?.message_id;
+  try {
+    await editFn();
+  } catch {
+    const sent = await sendFn();
+    if (msgId) { try { await ctx.deleteMessage(msgId); } catch {} }
+    return sent;
+  }
 }
 
-bot.action(/pick:(.+)/, (ctx) => {
-    const celebName = ctx.match[1];
-    const celeb = celebrities.find(c => c.name === celebName);
-    if (!celeb) return ctx.answerCbQuery('Celebrity not found.');
+// ---- handlers ----
+bot.start((ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
 
-    const buttons = Markup.inlineKeyboard([
-        [Markup.button.url('🔗 View Leaks', celeb.url)], // Changed here
-        [Markup.button.callback('⬅️ Back', 'page:1')]
-    ]);
-
-    ctx.editMessageText(`${celeb.name}`, buttons);
+bot.action(/^page:(\d+)$/, async (ctx) => {
+  const page = Number(ctx.match[1]);
+  await editOrSendNew(
+    ctx,
+    async () => ctx.editMessageReplyMarkup(buildMenu(page).reply_markup),
+    async () => ctx.reply('Choose a celebrity:', buildMenu(page))
+  );
 });
+
+bot.action(/^pick:(.+)$/, async (ctx) => {
+  const slug = ctx.match[1];
+  const celeb = celebs.find(c => c.slug === slug);
+  if (!celeb) return ctx.answerCbQuery('Not found');
+
+  const buttons = Markup.inlineKeyboard([
+    [Markup.button.url('🔗 View Leaks', celeb.url)],  // <— changed text here
+    [Markup.button.callback('⬅️ Back', 'back:1')]
+  ]);
+
+  // try to edit in place to a photo; if it fails, send a new photo message
+  await editOrSendNew(
+    ctx,
+    async () =>
+      ctx.editMessageMedia(
+        { type: 'photo', media: celeb.image, caption: celeb.name },
+        { reply_markup: buttons.reply_markup }
+      ),
+    async () =>
+      ctx.replyWithPhoto({ url: celeb.image }, { caption: celeb.name, reply_markup: buttons.reply_markup })
+  );
+});
+
+bot.action(/^back:(\d+)$/, async (ctx) => {
+  await editOrSendNew(
+    ctx,
+    async () => ctx.editMessageText('Choose a celebrity:', buildMenu(1)),
+    async () => ctx.reply('Choose a celebrity:', buildMenu(1))
+  );
+});
+
+bot.action('noop', (ctx) => ctx.answerCbQuery(''));
 
 bot.launch();
+console.log('Bot running…');
+
+// graceful shutdown for Railway
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
