@@ -1,128 +1,79 @@
-// index.js
 const { Telegraf, Markup } = require('telegraf');
-const rawCelebs = require('./celebs.json');
+require('dotenv').config();
 
-// ---- TOKEN (Railway env vars) ----
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
-if (!TOKEN) {
-  console.error('Missing TELEGRAM_BOT_TOKEN (or BOT_TOKEN) env var');
-  process.exit(1);
-}
-const bot = new Telegraf(TOKEN);
+const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// ---- helpers ----
-const slugify = (s) =>
-  String(s || '')
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 45);
+const celebrities = [
+    { name: 'Mia Khalifa', url: 'https://rentry.co/mia-khalifa' },
+    { name: 'Megnut', url: 'https://rentry.co/megnut' },
+    { name: 'Lela Sonha', url: 'https://rentry.co/lela-sonha' },
+    { name: 'SweetieFox', url: 'https://rentry.co/sweetiefox' },
+    { name: 'Vanessa Bohorquez', url: 'https://rentry.co/vanessa-bohorquez' },
+    { name: 'Kayla Moody', url: 'https://rentry.co/kayla-moody' },
+    { name: 'Fetching_Butterflies', url: 'https://rentry.co/fetching-butterflies' },
+    { name: 'Kenzie Anne', url: 'https://rentry.co/kenzie-anne' },
+    { name: 'Leah Chan', url: 'https://rentry.co/leah-chan' },
+    { name: 'Elle Brooke', url: 'https://rentry.co/elle-brooke' },
+    { name: 'Belle Delphine', url: 'https://rentry.co/belle-delphine' }
+];
 
-// Normalize celebs (need name, and image or url)
-const celebs = (rawCelebs || [])
-  .filter(c => c && c.name && (c.image || c.url))
-  .map(c => ({ ...c, slug: c.slug ? String(c.slug) : slugify(c.name) }));
+const ITEMS_PER_PAGE = 10;
 
-// label without emojis (fast)
-const label = (name) => name;
-
-// ---- paging config ----
-const PAGE_SIZE = 10;
-const TOTAL_PAGES = Math.max(1, Math.ceil(celebs.length / PAGE_SIZE));
-
-// Build one page keyboard
-function buildPage(page) {
-  const start = (page - 1) * PAGE_SIZE;
-  const slice = celebs.slice(start, start + PAGE_SIZE);
-
-  const rows = slice.map(c => [Markup.button.callback(label(c.name), `pick:${c.slug}`)]);
-
-  const nav = [];
-  if (page > 1) nav.push(Markup.button.callback('⬅️ Prev', `page:${page - 1}`));
-  nav.push(Markup.button.callback(`Page ${page}/${TOTAL_PAGES}`, 'noop'));
-  if (page < TOTAL_PAGES) nav.push(Markup.button.callback('Next ➡️', `page:${page + 1}`));
-  rows.push(nav);
-
-  return Markup.inlineKeyboard(rows);
-}
-
-// ---- PREBUILD ALL PAGES (cache) ----
-const PAGE_CACHE = Array.from({ length: TOTAL_PAGES }, (_, i) => buildPage(i + 1));
-
-// ---- helpers: edit or send-new+delete-old ----
-async function editOrSendNew(ctx, editFn, sendFn) {
-  const msgId = ctx.callbackQuery?.message?.message_id;
-  try {
-    await editFn();
-  } catch {
-    const sent = await sendFn();
-    if (msgId) { try { await ctx.deleteMessage(msgId); } catch {} }
-    return sent;
-  }
-}
-
-// ---- COMMANDS / ACTIONS ----
-bot.start(async (ctx) => {
-  await ctx.reply('Choose a celebrity:', PAGE_CACHE[0]);
+bot.start((ctx) => {
+    sendCelebrityList(ctx, 1);
 });
 
-bot.action(/^page:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery(); // clear spinner
-  const page = Math.min(Math.max(1, Number(ctx.match[1])), TOTAL_PAGES);
-  await editOrSendNew(
-    ctx,
-    async () => ctx.editMessageReplyMarkup(PAGE_CACHE[page - 1].reply_markup),
-    async () => ctx.reply('Choose a celebrity:', PAGE_CACHE[page - 1])
-  );
-});
+function sendCelebrityList(ctx, page) {
+    const startIndex = (page - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    const celebPage = celebrities.slice(startIndex, endIndex);
 
-// Pick -> ACK -> delete menu -> send photo (robust) -> else text fallback
-bot.action(/^pick:(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery(); // instant feedback
+    const buttons = celebPage.map(c => [Markup.button.callback(c.name, `pick:${c.name}`)]);
 
-  const slug = ctx.match[1];
-  const celeb = celebs.find(c => c.slug === slug);
-  if (!celeb) return ctx.reply('Not found. Try again.');
-
-  // delete the menu message so chat stays clean
-  const menuId = ctx.callbackQuery?.message?.message_id;
-  if (menuId) { try { await ctx.deleteMessage(menuId); } catch {} }
-
-  const buttons = Markup.inlineKeyboard([
-    [Markup.button.url('🔗 View Bio', celeb.url)],
-    [Markup.button.callback('⬅️ Back', 'back:1')]
-  ]);
-
-  const photoInput = celeb.file_id || celeb.fileId || celeb.image || celeb.url;
-
-  // Try sending the photo two ways; if both fail, send text only (no preview)
-  try {
-    await ctx.replyWithPhoto(photoInput, { caption: celeb.name, reply_markup: buttons.reply_markup });
-  } catch (e1) {
-    try {
-      await ctx.replyWithPhoto({ url: photoInput }, { caption: celeb.name, reply_markup: buttons.reply_markup });
-    } catch (e2) {
-      await ctx.reply(
-        `<b>${celeb.name}</b>${celeb.url ? `\n<a href="${celeb.url}">Open bio</a>` : ''}`,
-        { parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: buttons.reply_markup }
-      );
+    if (page > 1) {
+        buttons.push([Markup.button.callback('⬅️ Prev', `page:${page - 1}`)]);
     }
-  }
+    if (endIndex < celebrities.length) {
+        buttons.push([Markup.button.callback('Next ➡️', `page:${page + 1}`)]);
+    }
+
+    ctx.reply(`Choose a celebrity:`, Markup.inlineKeyboard(buttons));
+}
+
+bot.action(/page:(\d+)/, (ctx) => {
+    const page = parseInt(ctx.match[1]);
+    ctx.editMessageText(`Choose a celebrity:`, Markup.inlineKeyboard(
+        getCelebrityButtons(page)
+    ));
 });
 
-// Back -> ACK -> delete card -> show Page 1 (cached)
-bot.action(/^back:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const cardId = ctx.callbackQuery?.message?.message_id;
-  if (cardId) { try { await ctx.deleteMessage(cardId); } catch {} }
-  await ctx.reply('Choose a celebrity:', PAGE_CACHE[0]);
-});
+function getCelebrityButtons(page) {
+    const startIndex = (page - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    const celebPage = celebrities.slice(startIndex, endIndex);
 
-bot.action('noop', (ctx) => ctx.answerCbQuery(''));
+    const buttons = celebPage.map(c => [Markup.button.callback(c.name, `pick:${c.name}`)]);
+
+    if (page > 1) {
+        buttons.push([Markup.button.callback('⬅️ Prev', `page:${page - 1}`)]);
+    }
+    if (endIndex < celebrities.length) {
+        buttons.push([Markup.button.callback('Next ➡️', `page:${page + 1}`)]);
+    }
+    return buttons;
+}
+
+bot.action(/pick:(.+)/, (ctx) => {
+    const celebName = ctx.match[1];
+    const celeb = celebrities.find(c => c.name === celebName);
+    if (!celeb) return ctx.answerCbQuery('Celebrity not found.');
+
+    const buttons = Markup.inlineKeyboard([
+        [Markup.button.url('🔗 View Leaks', celeb.url)], // Changed here
+        [Markup.button.callback('⬅️ Back', 'page:1')]
+    ]);
+
+    ctx.editMessageText(`${celeb.name}`, buttons);
+});
 
 bot.launch();
-console.log('Bot running…');
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
