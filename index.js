@@ -68,14 +68,19 @@ bot.action(/^pick:(.+)$/, async (ctx) => {
   const celeb = celebs.find(c => c.slug === slug);
   if (!celeb) return ctx.answerCbQuery('Not found');
 
+  // Use Rentry "bio" for the button; fall back to url if bio missing
+  const leaksLink = celeb.bio || celeb.url;
+
   const buttons = Markup.inlineKeyboard([
-    [Markup.button.url('🔗 View Leaks', celeb.url)],
+    [Markup.button.url('🔗 View Leaks', leaksLink)],
     [Markup.button.callback('⬅️ Back', 'back:1')]
   ]);
 
+  // Use file_id if present; otherwise use image URL (your JSON uses "url" for the image)
+  const imageUrl = celeb.image || celeb.url;
   const media = celeb.file_id
     ? { type: 'photo', media: celeb.file_id, caption: celeb.name }
-    : { type: 'photo', media: celeb.image, caption: celeb.name };
+    : { type: 'photo', media: imageUrl, caption: celeb.name };
 
   await editOrSendNew(
     ctx,
@@ -84,7 +89,7 @@ bot.action(/^pick:(.+)$/, async (ctx) => {
       if (celeb.file_id) {
         return ctx.replyWithPhoto(celeb.file_id, { caption: celeb.name, reply_markup: buttons.reply_markup });
       } else {
-        return ctx.replyWithPhoto({ url: celeb.image }, { caption: celeb.name, reply_markup: buttons.reply_markup });
+        return ctx.replyWithPhoto({ url: imageUrl }, { caption: celeb.name, reply_markup: buttons.reply_markup });
       }
     }
   );
