@@ -39,7 +39,7 @@ function buildMenu(page = 1) {
   return Markup.inlineKeyboard(rows);
 }
 
-// edit-in-place helper
+// edit-in-place helper (fallback: send new + delete old)
 async function editOrSendNew(ctx, editFn, sendFn) {
   const msgId = ctx.callbackQuery?.message?.message_id;
   try {
@@ -51,7 +51,7 @@ async function editOrSendNew(ctx, editFn, sendFn) {
   }
 }
 
-// actions
+// ---------- commands / actions ----------
 bot.start((ctx) => ctx.reply('Choose a celebrity:', buildMenu(1)));
 
 bot.action(/^page:(\d+)$/, async (ctx) => {
@@ -68,15 +68,13 @@ bot.action(/^pick:(.+)$/, async (ctx) => {
   const celeb = celebs.find(c => c.slug === slug);
   if (!celeb) return ctx.answerCbQuery('Not found');
 
-  // Use Rentry "bio" for the button; fall back to url if bio missing
-  const leaksLink = celeb.bio || celeb.url;
+  const leaksLink = celeb.bio || celeb.url;   // <-- use Rentry when present
 
   const buttons = Markup.inlineKeyboard([
     [Markup.button.url('🔗 View Leaks', leaksLink)],
     [Markup.button.callback('⬅️ Back', 'back:1')]
   ]);
 
-  // Use file_id if present; otherwise use image URL (your JSON uses "url" for the image)
   const imageUrl = celeb.image || celeb.url;
   const media = celeb.file_id
     ? { type: 'photo', media: celeb.file_id, caption: celeb.name }
@@ -104,6 +102,25 @@ bot.action(/^back:(\d+)$/, async (ctx) => {
 });
 
 bot.action('noop', (ctx) => ctx.answerCbQuery(''));
+
+// ---------- file_id helper (DM only) ----------
+bot.on('photo', async (ctx) => {
+  // only reply in private chats to avoid noise in groups
+  if (ctx.chat?.type !== 'private') return;
+  const sizes = ctx.message.photo;
+  const best = sizes[sizes.length - 1]; // largest size
+  const fileId = best.file_id;
+  await ctx.reply(`file_id:\n${fileId}`);
+});
+
+// if someone sends an image *as a file* (document)
+bot.on('document', async (ctx) => {
+  if (ctx.chat?.type !== 'private') return;
+  const doc = ctx.message.document;
+  if (doc?.mime_type?.startsWith('image/')) {
+    await ctx.reply(`file_id (image document):\n${doc.file_id}`);
+  }
+});
 
 bot.launch();
 console.log('Bot running…');
