@@ -2,17 +2,18 @@
   "name": "telegram-celeb-bot",
   "version": "1.0.0",
   "description": "Telegram bot with celeb list and previews",
+  "private": true,
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "NODE_ENV=production node index.js",
+    "start:dev": "node index.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "20.x"
   },
   "dependencies": {
-    "node-telegram-bot-api": "^0.61.0",
-    "dotenv": "^16.4.5",
-    "axios": "^1.6.8"
+    "node-telegram-bot-api": "0.61.0",
+    "dotenv": "16.4.5"
   }
 }
