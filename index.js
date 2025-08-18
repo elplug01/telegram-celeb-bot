@@ -108,20 +108,79 @@ bot.on('callback_query', (q) => {
   }
 });
 
-// Optional helper: reply with the file_id of any photo users send you
+// ======= Reply with snippet when users send a PHOTO =======
 bot.on('photo', async (msg) => {
   try {
     const best = msg.photo?.[msg.photo.length - 1];
     if (!best) throw new Error('No photo sizes');
 
+    const file = await bot.getFile(best.file_id);
+    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
+
     const snippet = '```json\n' + JSON.stringify({ file_id: best.file_id }, null, 2) + '\n```';
     await bot.sendMessage(
       msg.chat.id,
-      `Got it! Here is the snippet you can paste into celebs.json:\n\n${snippet}`,
+      `Got it! Here is the snippet you can paste into celebs.json:\n\n${snippet}\nDirect file URL (optional):\n${fileUrl}`,
       { parse_mode: 'Markdown' }
     );
   } catch {
     bot.sendMessage(msg.chat.id, 'Sorry, I could not read that photo.');
+  }
+});
+
+// ======= Reply with snippet when users send a VIDEO (mp4) =======
+bot.on('video', async (msg) => {
+  try {
+    const v = msg.video;
+    if (!v) throw new Error('No video');
+
+    const file = await bot.getFile(v.file_id);
+    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
+
+    const payload = {
+      file_id: v.file_id,
+      width: v.width,
+      height: v.height,
+      duration: v.duration,
+      mime_type: v.mime_type
+    };
+    const snippet = '```json\n' + JSON.stringify(payload, null, 2) + '\n```';
+
+    await bot.sendMessage(
+      msg.chat.id,
+      `Got it! Video details for celebs.json (usually you only need "file_id"):\n\n${snippet}\nDirect file URL (optional):\n${fileUrl}`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch {
+    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that media.');
+  }
+});
+
+// ======= Reply with snippet when users send a GIF/animation =======
+bot.on('animation', async (msg) => {
+  try {
+    const a = msg.animation;
+    if (!a) throw new Error('No animation');
+
+    const file = await bot.getFile(a.file_id);
+    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
+
+    const payload = {
+      file_id: a.file_id,
+      width: a.width,
+      height: a.height,
+      duration: a.duration,
+      mime_type: a.mime_type
+    };
+    const snippet = '```json\n' + JSON.stringify(payload, null, 2) + '\n```';
+
+    await bot.sendMessage(
+      msg.chat.id,
+      `Got it! Animation details (usually you only need "file_id"):\n\n${snippet}\nDirect file URL (optional):\n${fileUrl}`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch {
+    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that media.');
   }
 });
 
