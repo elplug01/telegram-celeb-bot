@@ -1,30 +1,22 @@
+// index.js
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-// ── Config ───────────────────────────────────────────────
+// ── Load celebs.json if you’re using the menu feature ──
+let celebs = [];
+try {
+  celebs = JSON.parse(fs.readFileSync(path.join(__dirname, 'celebs.json'), 'utf8'));
+} catch (_) {}
+
+// ── Bot setup ──
 const token = '7623685237:AAFlNTEvtgQWDOoosNX5gBM9hZnEs_GfOO4';
 const bot = new TelegramBot(token, { polling: true });
 
-const CHANNEL_ID = '@Botacatest'; 
-const PROMO_INTERVAL_MINUTES = 2; // every 2 minutes for testing
-
-// Replace with your video details
-const PROMO_VIDEO = {
-  file_id: 'BAACAgEAAxkBAAID0WiieDS5loQVTRlJv4YldD5W1vkfAALjBQACPHwRRTzftenee1R1NgQ',
-  caption: '🔥 Check out our bot here: https://t.me/Freakysl_bot'
-};
-
-// ── Celebs data ──────────────────────────────────────────
-const celebs = JSON.parse(
-  fs.readFileSync(path.join(__dirname, 'celebs.json'), 'utf8')
-);
-
-// ── Paging state (per chat) ──────────────────────────────
+// ── Paging state (menu feature) ──
 const ITEMS_PER_PAGE = 7;
 const pageByChat = new Map();
 
-// ── Helpers ──────────────────────────────────────────────
 function clamp(n, min, max) { return Math.max(min, Math.min(n, max)); }
 
 function sendPage(chatId, page) {
@@ -57,33 +49,25 @@ function sendCeleb(chatId, index) {
   const caption = c.name;
   const buttons = [];
 
-  if (c.bio && typeof c.bio === 'string' && c.bio.trim().length > 0) {
-    buttons.push([{ text: '🔗 View Leaks', url: c.bio }]);
-  }
+  if (c.bio) buttons.push([{ text: '🔗 View Leaks', url: c.bio }]);
 
   const page = pageByChat.get(chatId) ?? Math.floor(index / ITEMS_PER_PAGE);
   buttons.push([{ text: '⬅ Back', callback_data: `page_${page}` }]);
 
   const opts = { caption, reply_markup: { inline_keyboard: buttons } };
 
-  if (c.file_id && typeof c.file_id === 'string') {
-    return bot.sendPhoto(chatId, c.file_id, opts).catch(() =>
-      bot.sendMessage(chatId, 'Could not load the photo for this item.')
-    );
-  }
-  if (c.url && typeof c.url === 'string') {
-    return bot.sendPhoto(chatId, c.url, opts).catch(() =>
-      bot.sendMessage(chatId, 'Could not load the photo for this item.')
-    );
-  }
+  if (c.file_id) return bot.sendPhoto(chatId, c.file_id, opts).catch(() =>
+    bot.sendMessage(chatId, 'Could not load the photo.')
+  );
+  if (c.url) return bot.sendPhoto(chatId, c.url, opts).catch(() =>
+    bot.sendMessage(chatId, 'Could not load the photo.')
+  );
+
   return bot.sendMessage(chatId, caption, opts);
 }
 
-// ── Commands / Callbacks ────────────────────────────────
-bot.onText(/\/start|\/menu/, (msg) => {
-  pageByChat.set(msg.chat.id, 0);
-  sendPage(msg.chat.id, 0);
-});
+// ── Menu commands ──
+bot.onText(/\/start|\/menu/, (msg) => sendPage(msg.chat.id, 0));
 
 bot.on('callback_query', (q) => {
   const chatId = q.message.chat.id;
@@ -97,30 +81,44 @@ bot.on('callback_query', (q) => {
     const idx = parseInt(data.split('_')[1], 10);
     return sendCeleb(chatId, idx);
   }
-  if (data === 'noop') {
-    return bot.answerCallbackQuery(q.id);
-  }
+  if (data === 'noop') return bot.answerCallbackQuery(q.id);
 });
 
-// ── Auto-promo message loop ─────────────────────────────
-let lastPromoMessageId = null;
+// ── Auto Poster ──
+const CHANNEL = '@Botacatest';
+const CLIP_FILE_ID = 'BAACAgEAAxkBAAID0WiieDS5loQVTRlJv4YldD5W1vkfAALjBQACPHwRRTzftenee1R1NgQ';
+const POST_TEXT = '🔥 Check out our bot here: https://t.me/Freakysl_bot';
+const INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
 
-async function sendPromo() {
+let lastPostedMessageId = null;
+let posterTimer = null;
+let inFlight = false;
+
+function scheduleNext() {
+  posterTimer = setTimeout(postOnce, INTERVAL_MS);
+}
+
+async function safeDelete(chat, messageId) {
+  if (!messageId) return;
+  try { await bot.deleteMessage(chat, messageId); } catch (_) {}
+}
+
+async function postOnce() {
+  if (inFlight) return;
+  inFlight = true;
   try {
-    if (lastPromoMessageId) {
-      await bot.deleteMessage(CHANNEL_ID, lastPromoMessageId).catch(() => {});
-    }
-
-    const sent = await bot.sendVideo(CHANNEL_ID, PROMO_VIDEO.file_id, {
-      caption: PROMO_VIDEO.caption
+    await safeDelete(CHANNEL, lastPostedMessageId);
+    const sent = await bot.sendVideo(CHANNEL, CLIP_FILE_ID, {
+      caption: POST_TEXT,
+      supports_streaming: true
     });
-
-    lastPromoMessageId = sent.message_id;
+    lastPostedMessageId = sent?.message_id || null;
   } catch (err) {
-    console.error('Error sending promo:', err.message);
+    console.error('Auto-post error:', err.message || err);
+  } finally {
+    inFlight = false;
+    scheduleNext();
   }
 }
 
-// Start loop
-setInterval(sendPromo, PROMO_INTERVAL_MINUTES * 60 * 1000);
-sendPromo();
+postOnce(); // start loop
