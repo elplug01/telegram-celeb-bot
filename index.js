@@ -108,85 +108,93 @@ bot.on('callback_query', (q) => {
   }
 });
 
-// ======= Reply with snippet when users send a PHOTO =======
+// ======= Media helper: reply with file_id for any common media =======
+async function replyWithFileId(msg, kind, fileId, extraInfo = {}) {
+  const oneLiner = JSON.stringify({ file_id: fileId });
+  const pretty = JSON.stringify({ file_id: fileId, ...extraInfo }, null, 2);
+
+  const header = `Got it! Detected <b>${kind}</b>. Paste this into <code>celebs.json</code>:\n`;
+  const body = `<code>${oneLiner}</code>\n\nDetailed:\n<pre>${pretty}</pre>`;
+
+  await bot.sendMessage(msg.chat.id, header + body, { parse_mode: 'HTML' });
+}
+
+function pickLargestPhoto(photos) {
+  if (!Array.isArray(photos) || photos.length === 0) return null;
+  // photos is an array of size-variants arrays; Telegram sends as array of PhotoSize
+  // In updates, msg.photo is already the variants array for the same photo.
+  return photos[photos.length - 1]; // last is usually the biggest
+}
+
+// Photos
 bot.on('photo', async (msg) => {
   try {
-    const best = msg.photo?.[msg.photo.length - 1];
-    if (!best) throw new Error('No photo sizes');
-
-    const file = await bot.getFile(best.file_id);
-    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
-
-    const snippet = '```json\n' + JSON.stringify({ file_id: best.file_id }, null, 2) + '\n```';
-    await bot.sendMessage(
-      msg.chat.id,
-      `Got it! Here is the snippet you can paste into celebs.json:\n\n${snippet}\nDirect file URL (optional):\n${fileUrl}`,
-      { parse_mode: 'Markdown' }
-    );
-  } catch {
-    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that photo.');
-  }
-});
-
-// ======= Reply with snippet when users send a VIDEO (mp4) =======
-bot.on('video', async (msg) => {
-  try {
-    const v = msg.video;
-    if (!v) throw new Error('No video');
-
-    const file = await bot.getFile(v.file_id);
-    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
-
-    const payload = {
-      file_id: v.file_id,
-      width: v.width,
-      height: v.height,
-      duration: v.duration,
-      mime_type: v.mime_type
-    };
-    const snippet = '```json\n' + JSON.stringify(payload, null, 2) + '\n```';
-
-    await bot.sendMessage(
-      msg.chat.id,
-      `Got it! Video details for celebs.json (usually you only need "file_id"):\n\n${snippet}\nDirect file URL (optional):\n${fileUrl}`,
-      { parse_mode: 'Markdown' }
-    );
+    const best = pickLargestPhoto(msg.photo);
+    if (!best) throw new Error('no photo sizes');
+    await replyWithFileId(msg, 'photo', best.file_id, { width: best.width, height: best.height });
   } catch {
     bot.sendMessage(msg.chat.id, 'Sorry, I could not read that media.');
   }
 });
 
-// ======= Reply with snippet when users send a GIF/animation =======
+// Videos
+bot.on('video', async (msg) => {
+  try {
+    const v = msg.video;
+    if (!v?.file_id) throw new Error('no video');
+    await replyWithFileId(msg, 'video', v.file_id, {
+      width: v.width, height: v.height, duration: v.duration, mime_type: v.mime_type
+    });
+  } catch {
+    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that media.');
+  }
+});
+
+// GIF/animation (Telegram "animation")
 bot.on('animation', async (msg) => {
   try {
     const a = msg.animation;
-    if (!a) throw new Error('No animation');
+    if (!a?.file_id) throw new Error('no animation');
+    await replyWithFileId(msg, 'animation (GIF)', a.file_id, {
+      width: a.width, height: a.height, duration: a.duration, mime_type: a.mime_type
+    });
+  } catch {
+    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that media.');
+  }
+});
 
-    const file = await bot.getFile(a.file_id);
-    const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
+// Video notes (round videos)
+bot.on('video_note', async (msg) => {
+  try {
+    const vn = msg.video_note;
+    if (!vn?.file_id) throw new Error('no video_note');
+    await replyWithFileId(msg, 'video_note', vn.file_id, {
+      length: vn.length, duration: vn.duration
+    });
+  } catch {
+    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that media.');
+  }
+});
 
-    const payload = {
-      file_id: a.file_id,
-      width: a.width,
-      height: a.height,
-      duration: a.duration,
-      mime_type: a.mime_type
-    };
-    const snippet = '```json\n' + JSON.stringify(payload, null, 2) + '\n```';
-
-    await bot.sendMessage(
-      msg.chat.id,
-      `Got it! Animation details (usually you only need "file_id"):\n\n${snippet}\nDirect file URL (optional):\n${fileUrl}`,
-      { parse_mode: 'Markdown' }
-    );
+// Documents that are media (some users send videos/images as "document")
+bot.on('document', async (msg) => {
+  try {
+    const d = msg.document;
+    if (!d?.file_id) throw new Error('no document');
+    const mime = d.mime_type || '';
+    const looksMedia = mime.startsWith('image/') || mime.startsWith('video/') || mime === 'image/gif';
+    if (!looksMedia) throw new Error('document is not media');
+    await replyWithFileId(msg, 'document (media)', d.file_id, {
+      mime_type: d.mime_type, file_name: d.file_name
+    });
   } catch {
     bot.sendMessage(msg.chat.id, 'Sorry, I could not read that media.');
   }
 });
 
 // ======= AUTO-POSTER (every N minutes) =======
-// This version does NOT post on boot. It waits for the first interval to avoid duplicate
-// posts during rolling deploys. It also deletes the previous post each cycle.
+// Waits one full interval on boot (prevents double-post on deploys).
+// Deletes the previous post each cycle.
 
 let lastPostedMessageId = null;
 let postInFlight = false;
