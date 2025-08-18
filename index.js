@@ -8,21 +8,28 @@ const path = require('path');
 // ======= Config =======
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 
-// Channel can be a username like "@Botacatest" or a numeric chat id (e.g. -1001234567890)
-const CHANNEL = process.env.CHANNEL || '@Botacatest';
+// Post to multiple channels (usernames or numeric IDs). You can also set CHANNELS in .env as a comma list.
+const CHANNELS = (process.env.CHANNELS || '@Botacatest,@ofleakzz1')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
-// How often to post (minutes)
-const POST_EVERY_MINUTES = parseInt(process.env.POST_MINUTES || '5', 10);
+// How often to post (minutes). 120 = every 2 hours.
+const POST_EVERY_MINUTES = parseInt(process.env.POST_MINUTES || '120', 10);
 
-// Videos to rotate (Telegram file_ids)
-const VIDEO_FILE_IDS = [
-  "BAACAgEAAxkBAAID7Wii7DuLDfdcDFg4Noc1RPn3wp9NAAIgBQACPHwZRTwj5utrtNBfNgQ", // Video 1
-  "BAACAgEAAxkBAAID-2ijA_vIzqGDcWMuzpnU6c3KvfF1AAIkBQACPHwZRY9A7UCE5qikNgQ", // Video 2
-  "BAACAgEAAxkBAAID_WijBBemq9RHGdhAnedzYoeBkJLgAAIlBQACPHwZRf2StGh_jSKhNgQ", // Video 3
-  "BAACAgEAAxkBAAID_2ijBDC9Kfy36JNcI0_rfF7HSMAiAAImBQACPHwZRUXG3ilAkzO_NgQ"  // Video 4
-];
+// Buttons + caption
+const CAPTION = 'Free Onlyfans';
+const FULL_LEAKS_URL = process.env.FULL_LEAKS_URL || 'https://t.me/Freakysl_bot';
+const VIDS_URL = 'https://t.me/offreel';
 
-let videoIndex = 0;
+// Video rotation list (Telegram file_ids). You can override with POST_VIDEO_FILE_IDS in .env (comma list).
+const ROTATION = (process.env.POST_VIDEO_FILE_IDS || [
+  'BAACAgEAAxkBAAID0WiieDS5loQVTRlJv4YldD5W1vkfAALjBQACPHwRRTzftenee1R1NgQ', // original
+  'BAACAgEAAxkBAAID7Wii7DuLDfdcDFg4Noc1RPn3wp9NAAIgBQACPHwZRTwj5utrtNBfNgQ', // video 1
+  'BAACAgEAAxkBAAID-2ijA_vIzqGDcWMuzpnU6c3KvfF1AAIkBQACPHwZRY9A7UCE5qikNgQ', // video 2
+  'BAACAgEAAxkBAAID_WijBBemq9RHGdhAnedzYoeBkJLgAAIlBQACPHwZRf2StGh_jSKhNgQ', // video 3
+  'BAACAgEAAxkBAAID_2ijBDC9Kfy36JNcI0_rfF7HSMAiAAImBQACPHwZRUXG3ilAkzO_NgQ'  // video 4
+]).map(s => s.toString().trim());
 
 // ======= Load celebs list (for the bot menu) =======
 const celebsPath = path.join(__dirname, 'celebs.json');
@@ -30,11 +37,6 @@ const celebs = JSON.parse(fs.readFileSync(celebsPath, 'utf8'));
 
 // ======= Bot setup =======
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
-
-// Clear any webhook so polling works
-bot.deleteWebHook({ drop_pending_updates: true })
-  .then(() => console.log('[tg] Webhook cleared; polling active'))
-  .catch(err => console.warn('[tg] Could not clear webhook:', err?.message));
 
 // ======= Paging state (per chat) =======
 const ITEMS_PER_PAGE = 7;
@@ -101,11 +103,6 @@ bot.onText(/\/start|\/menu/, (msg) => {
   sendPage(msg.chat.id, 0);
 });
 
-// simple ping test
-bot.onText(/\/ping/, (msg) => {
-  bot.sendMessage(msg.chat.id, 'pong');
-});
-
 bot.on('callback_query', (q) => {
   const chatId = q.message.chat.id;
   const data = q.data || '';
@@ -123,25 +120,51 @@ bot.on('callback_query', (q) => {
   }
 });
 
-// Handle uploaded videos to get file_id
-bot.on('video', async (msg) => {
+// ======= Helpers for ID replies =======
+// Reply with file_id if user sends photo
+bot.on('photo', async (msg) => {
   try {
-    const v = msg.video;
-    if (!v?.file_id) throw new Error('No video file_id');
-
-    const snippet = '```json\n' + JSON.stringify({ file_id: v.file_id }, null, 2) + '\n```';
+    const best = msg.photo?.[msg.photo.length - 1];
+    if (!best) throw new Error('No photo sizes');
+    const snippet = '```json\n' + JSON.stringify({ file_id: best.file_id }, null, 2) + '\n```';
     await bot.sendMessage(
       msg.chat.id,
-      `Got it! Detected video. Paste this into celebs.json:\n${snippet}`,
+      `Got it! Here is the snippet you can paste into celebs.json:\n\n${snippet}`,
       { parse_mode: 'Markdown' }
     );
   } catch {
+    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that photo.');
+  }
+});
+
+// Reply with file_id if user sends video
+bot.on('video', async (msg) => {
+  try {
+    const v = msg.video;
+    if (!v?.file_id) throw new Error('No video');
+    const shortSnippet = JSON.stringify({ file_id: v.file_id });
+    const full = {
+      file_id: v.file_id,
+      width: v.width,
+      height: v.height,
+      duration: v.duration,
+      mime_type: v.mime_type
+    };
+    await bot.sendMessage(
+      msg.chat.id,
+      `Got it! Detected video. Paste this into celebs.json:\n${shortSnippet}\n\nDetailed:\n\`\`\`json\n${JSON.stringify(full, null, 2)}\n\`\`\``,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (e) {
     bot.sendMessage(msg.chat.id, 'Sorry, I could not read that media.');
   }
 });
 
-// ======= AUTO-POSTER (rotate videos sequentially) =======
-let lastPostedMessageId = null;
+// ======= AUTO-POSTER (every N minutes, multi-channel, auto-delete) =======
+// Wait one full interval before first post to avoid double-posts on deploys
+// Track last message per channel for deletion
+const lastMessageByChannel = new Map(); // channel -> message_id
+let rotationIndex = 0;
 let postInFlight = false;
 
 async function postOnce() {
@@ -150,33 +173,40 @@ async function postOnce() {
     return;
   }
   postInFlight = true;
+
+  const fileId = ROTATION[rotationIndex];
+  const reply_markup = {
+    inline_keyboard: [
+      [{ text: '👉 Full Leaks', url: FULL_LEAKS_URL }],
+      [{ text: '👉 Vids', url: VIDS_URL }]
+    ]
+  };
+
   try {
-    if (lastPostedMessageId) {
-      try {
-        await bot.deleteMessage(CHANNEL, lastPostedMessageId);
-        console.log('[poster] Deleted previous message:', lastPostedMessageId);
-      } catch (e) {
-        console.warn('[poster] Could not delete previous (maybe already gone):', e.message);
+    // For each channel: delete previous, post new
+    for (const channel of CHANNELS) {
+      const prev = lastMessageByChannel.get(channel);
+      if (prev) {
+        try {
+          await bot.deleteMessage(channel, prev);
+          console.log(`[poster] Deleted previous in ${channel}:`, prev);
+        } catch (e) {
+          console.warn(`[poster] Could not delete previous in ${channel}:`, e.message);
+        }
       }
-      lastPostedMessageId = null;
+
+      const sent = await bot.sendVideo(channel, fileId, {
+        caption: CAPTION,
+        supports_streaming: true,
+        reply_markup
+      });
+
+      lastMessageByChannel.set(channel, sent.message_id);
+      console.log('[poster] Posted to', channel, 'msg_id=', sent.message_id);
     }
 
-    const videoId = VIDEO_FILE_IDS[videoIndex];
-    videoIndex = (videoIndex + 1) % VIDEO_FILE_IDS.length; // rotate
-
-    const sent = await bot.sendVideo(CHANNEL, videoId, {
-      caption: '🔥 Free Onlyfans',
-      supports_streaming: true,
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '👉 Full Leaks', url: 'https://t.me/Freakysl_bot' }],
-          [{ text: '👉 Vids', url: 'https://t.me/offreel' }]
-        ]
-      }
-    });
-
-    lastPostedMessageId = sent.message_id;
-    console.log('[poster] Posted message:', lastPostedMessageId);
+    // advance rotation
+    rotationIndex = (rotationIndex + 1) % ROTATION.length;
   } catch (e) {
     console.error('[poster] Post failed:', e.message);
   } finally {
@@ -194,8 +224,10 @@ function startScheduler() {
     `local-${Math.random().toString(36).slice(2, 8)}`;
 
   console.log(`[poster] Scheduler starting (every ${minutes} min). instance=${INSTANCE_ID}`);
+  console.log('[poster] Channels:', CHANNELS.join(', '));
+  console.log('[poster] Rotation size:', ROTATION.length);
 
-  // Wait one full interval before the first post to avoid double-post on deploys
+  // Wait one full interval before the first post to avoid duplicate posts on deploys
   setTimeout(function tick() {
     postOnce().finally(() => setTimeout(tick, ms));
   }, ms);
