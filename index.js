@@ -1,7 +1,14 @@
+// index.js
+// ───────────────────────────────────────────────────────────────────────────────
+// Telegram celeb bot: paging UI + per-item bio link + media snippet helper
+// ───────────────────────────────────────────────────────────────────────────────
+
+require('dotenv').config(); // harmless if .env doesn't exist
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
+// Load celebs.json once at startup
 const celebs = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'celebs.json'), 'utf8')
 );
@@ -47,10 +54,12 @@ function sendCeleb(chatId, index) {
   const caption = c.name;
   const buttons = [];
 
+  // Link comes only from THIS celeb (no cross-talk between items)
   if (c.bio && typeof c.bio === 'string' && c.bio.trim().length > 0) {
     buttons.push([{ text: '🔗 View Leaks', url: c.bio }]);
   }
 
+  // Back button returns to the page user came from
   const page = pageByChat.get(chatId) ?? Math.floor(index / ITEMS_PER_PAGE);
   buttons.push([{ text: '⬅ Back', callback_data: `page_${page}` }]);
 
@@ -92,75 +101,85 @@ bot.on('callback_query', (q) => {
   }
 });
 
-// ── Optional: return file_id when users send photos ─────────────────────────────
-bot.on('photo', async (msg) => {
-  try {
-    const best = msg.photo?.[msg.photo.length - 1];
-    if (!best) throw new Error('No photo sizes');
-
-    const file = await bot.getFile(best.file_id);
-    const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-
-    await bot.sendMessage(
-      msg.chat.id,
-      `Got it! Here is the snippet you can paste into celebs.json:\n\n` +
-      '```json\n' +
-      JSON.stringify({ file_id: best.file_id }, null, 2) +
-      '\n```\n' +
-      `Direct file URL (optional):\n${fileUrl}`,
-      { parse_mode: 'Markdown' }
-    );
-  } catch {
-    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that photo.');
-  }
-});
-
-// ── Optional: return file_id when users send videos / GIFs ─────────────────────
+// ── Media snippet helper (photos, videos, GIFs, round videos, docs) ────────────
 async function sendMediaSnippet(chatId, kind, fileId, meta = {}) {
   try {
-    const file = await bot.getFile(fileId);
-    const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+    let fileUrl = '(unavailable: no BOT_TOKEN or file_path)';
+    try {
+      const file = await bot.getFile(fileId);
+      if (file && file.file_path) {
+        fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+      }
+    } catch {
+      // ignore: getFile may fail for some media types or if token missing
+    }
 
-    const snippet = {
-      file_id: fileId,
-      type: kind,
-      ...(meta.duration ? { duration: meta.duration } : {}),
-      ...(meta.width ? { width: meta.width } : {}),
-      ...(meta.height ? { height: meta.height } : {}),
-    };
+    const payload = { file_id: fileId };
+    // attach any extras we detected (non-breaking)
+    Object.keys(meta || {}).forEach((k) => {
+      if (meta[k] !== undefined && meta[k] !== null) payload[k] = meta[k];
+    });
 
-    await bot.sendMessage(
-      chatId,
-      `Got it! Here is the snippet you can paste (save the file_id for reuse):\n\n` +
-      '```json\n' + JSON.stringify(snippet, null, 2) + '\n```\n' +
-      `Direct file URL (optional):\n${fileUrl}`,
-      { parse_mode: 'Markdown' }
-    );
-  } catch {
-    await bot.sendMessage(chatId, 'Sorry, I couldn’t read that media.');
+    const header = `Got it! Here is the snippet you can paste into celebs.json:`;
+    const code = '```json\n' + JSON.stringify(payload, null, 2) + '\n```';
+    const extra =
+      fileUrl ? `\nDirect file URL (optional):\n${fileUrl}` : '';
+
+    await bot.sendMessage(chatId, `${header}\n\n${code}${extra}`, {
+      parse_mode: 'Markdown'
+    });
+  } catch (e) {
+    await bot.sendMessage(chatId, 'Sorry, I could not read that media.');
   }
 }
 
+// Photos
+bot.on('photo', async (msg) => {
+  const best = msg.photo?.[msg.photo.length - 1];
+  if (!best) return bot.sendMessage(msg.chat.id, 'No photo found.');
+  await sendMediaSnippet(msg.chat.id, 'photo', best.file_id, {
+    width: best.width, height: best.height
+  });
+});
+
+// Videos (regular clips)
 bot.on('video', async (msg) => {
   const v = msg.video;
   if (!v) return bot.sendMessage(msg.chat.id, 'No video found.');
   await sendMediaSnippet(msg.chat.id, 'video', v.file_id, {
-    duration: v.duration, width: v.width, height: v.height
+    width: v.width, height: v.height, duration: v.duration, mime_type: v.mime_type
   });
 });
 
+// Animations (GIFs / MP4 animations)
 bot.on('animation', async (msg) => {
   const a = msg.animation;
   if (!a) return bot.sendMessage(msg.chat.id, 'No animation found.');
   await sendMediaSnippet(msg.chat.id, 'animation', a.file_id, {
-    duration: a.duration, width: a.width, height: a.height
+    width: a.width, height: a.height, duration: a.duration, mime_type: a.mime_type
   });
 });
 
+// Round video messages
+bot.on('video_note', async (msg) => {
+  const vn = msg.video_note;
+  if (!vn) return bot.sendMessage(msg.chat.id, 'No video note found.');
+  await sendMediaSnippet(msg.chat.id, 'video_note', vn.file_id, {
+    length: vn.length, duration: vn.duration
+  });
+});
+
+// Documents that might be video/GIF files
 bot.on('document', async (msg) => {
   const d = msg.document;
-  if (!d) return;
-  const mime = d.mime_type || '';
-  if (!mime.startsWith('video/')) return; 
-  await sendMediaSnippet(msg.chat.id, 'video', d.file_id);
+  if (!d) return bot.sendMessage(msg.chat.id, 'No document found.');
+  // We include mime_type and file_name to help you identify the asset
+  await sendMediaSnippet(msg.chat.id, 'document', d.file_id, {
+    mime_type: d.mime_type, file_name: d.file_name, file_size: d.file_size
+  });
+});
+
+// ── Optional: basic error logging ───────────────────────────────────────────────
+bot.on('polling_error', (err) => {
+  console.error('Polling error:', err?.message || err);
 });
