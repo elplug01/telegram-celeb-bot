@@ -15,15 +15,15 @@ const CHANNEL = process.env.CHANNEL || '@Botacatest';
 const POST_EVERY_MINUTES = parseInt(process.env.POST_MINUTES || '5', 10);
 
 // Button (opens your bot)
-const BUTTON_TEXT = process.env.BUTTON_TEXT || '👉 Open Bot';
+const BUTTON_TEXT = process.env.BUTTON_TEXT || '👉 Open';
 const BUTTON_URL  = process.env.BUTTON_URL  || 'https://t.me/Freakysl_bot';
 
 // ======= Rotation list (sequential) =======
 const VIDEO_IDS = [
-  // Your original one (fallback)
+  // Original one (fallback)
   'BAACAgEAAxkBAAID0WiieDS5loQVTRlJv4YldD5W1vkfAALjBQACPHwRRTzftenee1R1NgQ',
 
-  // New 4 you provided
+  // Your 4 new videos
   'BAACAgEAAxkBAAID7Wii7DuLDfdcDFg4Noc1RPn3wp9NAAIgBQACPHwZRTwj5utrtNBfNgQ',
   'BAACAgEAAxkBAAID-2ijA_vIzqGDcWMuzpnU6c3KvfF1AAIkBQACPHwZRY9A7UCE5qikNgQ',
   'BAACAgEAAxkBAAID_WijBBemq9RHGdhAnedzYoeBkJLgAAIlBQACPHwZRf2StGh_jSKhNgQ',
@@ -179,8 +179,6 @@ bot.on('video', async (msg) => {
 });
 
 // ======= AUTO-POSTER (every N minutes) =======
-// Waits one full interval before the first post to avoid double-posts on deploy.
-
 let postInFlight = false;
 
 function pickNextVideoId() {
@@ -194,20 +192,13 @@ function pickNextVideoId() {
 }
 
 async function postOnce() {
-  if (postInFlight) {
-    console.log('[poster] Skipping: send in flight');
-    return;
-  }
+  if (postInFlight) return;
   postInFlight = true;
   try {
-    // Delete previous post if present
     if (lastMessageId) {
       try {
         await bot.deleteMessage(CHANNEL, lastMessageId);
-        console.log('[poster] Deleted previous message:', lastMessageId);
-      } catch (e) {
-        console.warn('[poster] Could not delete previous (maybe already gone):', e.message);
-      }
+      } catch {}
       lastMessageId = null;
       saveState({ lastMessageId, rotateIndex });
     }
@@ -215,7 +206,7 @@ async function postOnce() {
     const videoId = pickNextVideoId();
 
     const sent = await bot.sendVideo(CHANNEL, videoId, {
-      caption: '🔥 New clip just dropped!',
+      caption: '🔥 Free OnlyFans 🔥',
       supports_streaming: true,
       reply_markup: {
         inline_keyboard: [
@@ -226,7 +217,6 @@ async function postOnce() {
 
     lastMessageId = sent.message_id;
     saveState({ lastMessageId, rotateIndex });
-    console.log('[poster] Posted message:', lastMessageId, 'video:', videoId);
   } catch (e) {
     console.error('[poster] Post failed:', e.message);
   } finally {
@@ -237,15 +227,6 @@ async function postOnce() {
 function startScheduler() {
   const minutes = POST_EVERY_MINUTES;
   const ms = minutes * 60 * 1000;
-
-  const INSTANCE_ID =
-    process.env.RAILWAY_DEPLOYMENT_ID ||
-    process.env.RAILWAY_ENVIRONMENT_ID ||
-    `local-${Math.random().toString(36).slice(2, 8)}`;
-
-  console.log(`[poster] Scheduler starting (every ${minutes} min). instance=${INSTANCE_ID}`);
-
-  // Wait one full interval before the first post
   setTimeout(function tick() {
     postOnce().finally(() => setTimeout(tick, ms));
   }, ms);
