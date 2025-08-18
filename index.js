@@ -1,62 +1,37 @@
 // index.js
+require('dotenv').config();
+
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-// ---------- CONFIG (edit these 3 if needed) ----------
-const TOKEN   = '7623685237:AAFlNTEvtgQWDOoosNX5gBM9hZnEs_GfOO4';
-const CHANNEL = '@Botacatest';                 // your public channel @
-const VIDEO_FILE_ID = 'BAACAgEAAxkBAAID0WiieDS5loQVTRlJv4YldD5W1vkfAALjBQACPHwRRTzftenee1R1NgQ';
-// post every N minutes
-const POST_EVERY_MINUTES = 5;
-// -----------------------------------------------------
+// ======= Config =======
+const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 
-// Try to read celebs.json (optional feature)
-let celebs = [];
-try {
-  const p = path.join(__dirname, 'celebs.json');
-  if (fs.existsSync(p)) {
-    celebs = JSON.parse(fs.readFileSync(p, 'utf8'));
-    console.log(`[boot] Loaded celebs.json with ${celebs.length} entries`);
-  } else {
-    console.log('[boot] celebs.json not found — menu will still work but be empty.');
-  }
-} catch (e) {
-  console.error('[boot] Failed to parse celebs.json:', e.message);
-}
+// Channel can be a username like "@Botacatest" or a numeric chat id (e.g. -1001234567890)
+const CHANNEL = process.env.CHANNEL || '@Botacatest';
 
-// --------- SINGLE INSTANCE LOCK ----------
-const LOCK_PATH = path.join(__dirname, '.bot.lock');
-try {
-  if (fs.existsSync(LOCK_PATH)) {
-    const oldPid = parseInt(fs.readFileSync(LOCK_PATH, 'utf8'), 10);
-    if (!isNaN(oldPid)) {
-      try {
-        // if process exists, this won't throw
-        process.kill(oldPid, 0);
-        console.error(`[lock] Another instance is running (pid ${oldPid}). Exiting.`);
-        process.exit(1);
-      } catch {
-        console.warn(`[lock] Stale lock for pid ${oldPid}. Taking over.`);
-      }
-    }
-  }
-  fs.writeFileSync(LOCK_PATH, String(process.pid));
-  process.on('exit', () => { try { fs.unlinkSync(LOCK_PATH); } catch {} });
-  process.on('SIGINT', () => process.exit(0));
-  process.on('SIGTERM', () => process.exit(0));
-} catch (e) {
-  console.error('[lock] Could not create lock:', e.message);
-  process.exit(1);
-}
+// How often to post (minutes)
+const POST_EVERY_MINUTES = parseInt(process.env.POST_MINUTES || '5', 10);
 
-// --------- BOT SETUP ----------
-const bot = new TelegramBot(TOKEN, { polling: true });
+// Media to post each cycle (Telegram file_id is most reliable)
+const VIDEO_FILE_ID =
+  process.env.POST_VIDEO_FILE_ID ||
+  'BAACAgEAAxkBAAID0WiieDS5loQVTRlJv4YldD5W1vkfAALjBQACPHwRRTzftenee1R1NgQ';
 
-// Paging state (per chat)
+// ======= Load celebs list (for the bot menu) =======
+const celebsPath = path.join(__dirname, 'celebs.json');
+const celebs = JSON.parse(fs.readFileSync(celebsPath, 'utf8'));
+
+// ======= Bot setup =======
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+
+// ======= Paging state (per chat) =======
 const ITEMS_PER_PAGE = 7;
 const pageByChat = new Map();
-const clamp = (n, min, max) => Math.max(min, Math.min(n, max));
+
+// ======= Helpers =======
+function clamp(n, min, max) { return Math.max(min, Math.min(n, max)); }
 
 function sendPage(chatId, page) {
   const totalPages = Math.max(1, Math.ceil(celebs.length / ITEMS_PER_PAGE));
@@ -88,20 +63,21 @@ function sendCeleb(chatId, index) {
   const caption = c.name;
   const buttons = [];
 
-  if (c.bio && typeof c.bio === 'string' && c.bio.trim()) {
+  if (c.bio && typeof c.bio === 'string' && c.bio.trim().length > 0) {
     buttons.push([{ text: '🔗 View Leaks', url: c.bio }]);
   }
+
   const page = pageByChat.get(chatId) ?? Math.floor(index / ITEMS_PER_PAGE);
   buttons.push([{ text: '⬅ Back', callback_data: `page_${page}` }]);
 
   const opts = { caption, reply_markup: { inline_keyboard: buttons } };
 
-  if (c.file_id) {
+  if (c.file_id && typeof c.file_id === 'string') {
     return bot.sendPhoto(chatId, c.file_id, opts).catch(() =>
       bot.sendMessage(chatId, 'Could not load the photo for this item.')
     );
   }
-  if (c.url) {
+  if (c.url && typeof c.url === 'string') {
     return bot.sendPhoto(chatId, c.url, opts).catch(() =>
       bot.sendMessage(chatId, 'Could not load the photo for this item.')
     );
@@ -109,7 +85,7 @@ function sendCeleb(chatId, index) {
   return bot.sendMessage(chatId, caption, opts);
 }
 
-// Commands
+// ======= Commands / Callbacks =======
 bot.onText(/\/start|\/menu/, (msg) => {
   pageByChat.set(msg.chat.id, 0);
   sendPage(msg.chat.id, 0);
@@ -132,22 +108,16 @@ bot.on('callback_query', (q) => {
   }
 });
 
-// When users send photos, reply with snippet (helper)
+// Optional helper: reply with the file_id of any photo users send you
 bot.on('photo', async (msg) => {
   try {
     const best = msg.photo?.[msg.photo.length - 1];
     if (!best) throw new Error('No photo sizes');
 
-    const file = await bot.getFile(best.file_id);
-    const fileUrl = `https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`;
-
+    const snippet = '```json\n' + JSON.stringify({ file_id: best.file_id }, null, 2) + '\n```';
     await bot.sendMessage(
       msg.chat.id,
-      `Got it! Here is the snippet you can paste into celebs.json:\n\n` +
-      '```json\n' +
-      JSON.stringify({ file_id: best.file_id }, null, 2) +
-      '\n```\n' +
-      `Direct file URL (optional):\n${fileUrl}`,
+      `Got it! Here is the snippet you can paste into celebs.json:\n\n${snippet}`,
       { parse_mode: 'Markdown' }
     );
   } catch {
@@ -155,73 +125,60 @@ bot.on('photo', async (msg) => {
   }
 });
 
-// --------- AUTO-POSTER (single scheduler) ----------
+// ======= AUTO-POSTER (every N minutes) =======
+// This version does NOT post on boot. It waits for the first interval to avoid duplicate
+// posts during rolling deploys. It also deletes the previous post each cycle.
+
 let lastPostedMessageId = null;
 let postInFlight = false;
-let schedulerRunning = false;
 
 async function postOnce() {
   if (postInFlight) {
-    console.log('[poster] Skipping: previous send still in flight');
+    console.log('[poster] Skipping: send in flight');
     return;
   }
   postInFlight = true;
-
   try {
-    // delete previous message if present
     if (lastPostedMessageId) {
       try {
         await bot.deleteMessage(CHANNEL, lastPostedMessageId);
         console.log('[poster] Deleted previous message:', lastPostedMessageId);
       } catch (e) {
-        // If it was already deleted or not found, just log and continue
-        console.warn('[poster] Could not delete previous message (might be gone):', e.message);
+        console.warn('[poster] Could not delete previous (maybe already gone):', e.message);
       }
       lastPostedMessageId = null;
     }
 
-    // send the new clip
     const sent = await bot.sendVideo(CHANNEL, VIDEO_FILE_ID, {
-      caption: 'Tap to open the bot ➜ https://t.me/Freakysl_bot',
+      caption: '🔥 Check out our bot here: https://t.me/Freakysl_bot',
       supports_streaming: true
     });
-
     lastPostedMessageId = sent.message_id;
-    console.log('[poster] Posted new message:', lastPostedMessageId);
+    console.log('[poster] Posted message:', lastPostedMessageId);
   } catch (e) {
-    console.error('[poster] Failed to post video:', e.message);
+    console.error('[poster] Post failed:', e.message);
   } finally {
     postInFlight = false;
   }
 }
 
 function startScheduler() {
-  if (schedulerRunning) {
-    console.log('[poster] Scheduler already running, ignoring second start.');
-    return;
-  }
-  schedulerRunning = true;
+  const minutes = POST_EVERY_MINUTES;
+  const ms = minutes * 60 * 1000;
 
-  const ms = POST_EVERY_MINUTES * 60 * 1000;
+  const INSTANCE_ID =
+    process.env.RAILWAY_DEPLOYMENT_ID ||
+    process.env.RAILWAY_ENVIRONMENT_ID ||
+    `local-${Math.random().toString(36).slice(2, 8)}`;
 
-  // One-shot loop using setTimeout to avoid overlaps
-  const loop = async () => {
-    await postOnce();
-    setTimeout(loop, ms);
-  };
+  console.log(`[poster] Scheduler starting (every ${minutes} min). instance=${INSTANCE_ID}`);
 
-  console.log(`[poster] Starting scheduler: every ${POST_EVERY_MINUTES} minute(s).`);
-  // Kick off immediately, then every N minutes thereafter
-  loop();
+  // Wait one full interval before the first post to avoid double-post on deploys
+  setTimeout(function tick() {
+    postOnce().finally(() => setTimeout(tick, ms));
+  }, ms);
 }
 
-// log bot identity and then start scheduler once
-(async () => {
-  try {
-    const me = await bot.getMe();
-    console.log(`[boot] Logged in as @${me.username} (id ${me.id})`);
-  } catch (e) {
-    console.warn('[boot] getMe failed (continuing anyway):', e.message);
-  }
-  startScheduler();
-})();
+startScheduler();
+
+console.log('Bot is running…');
