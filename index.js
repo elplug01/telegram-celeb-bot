@@ -19,7 +19,6 @@ const POST_EVERY_MINUTES = parseInt(process.env.POST_MINUTES || '2', 10);
 
 // Buttons + caption
 const CAPTION = 'Free Onlyfans';
-const FULL_LEAKS_URL = process.env.FULL_LEAKS_URL || 'https://t.me/Freakysl_bot'; // (unused but kept)
 const VIDS_URL = 'https://t.me/offreel';
 
 // Video rotation list (Telegram file_ids). You can override with POST_VIDEO_FILE_IDS in .env (comma list).
