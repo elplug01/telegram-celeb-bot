@@ -8,28 +8,32 @@ const path = require('path');
 // ======= Config =======
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 
-// Post to multiple channels (usernames or numeric IDs). You can also set CHANNELS in .env as a comma list.
+// Channels to auto-post into (IDs or @usernames). You can override with CHANNELS in Railway.
 const CHANNELS = (process.env.CHANNELS || '@Botacatest,@ofleakzz1')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 
-// How often to post (minutes). 120 = every 2 hours.
-const POST_EVERY_MINUTES = parseInt(process.env.POST_MINUTES || '120', 10);
+// How often to post videos (minutes). Default: 2 (test). Set POST_MINUTES in Railway for production.
+const POST_EVERY_MINUTES = parseInt(process.env.POST_MINUTES || '2', 10);
 
-// Buttons + caption
+// Caption + Button
 const CAPTION = 'Free Onlyfans';
-const FULL_LEAKS_URL = process.env.FULL_LEAKS_URL || 'https://t.me/Freakysl_bot';
 const VIDS_URL = 'https://t.me/offreel';
 
-// Video rotation list (Telegram file_ids). You can override with POST_VIDEO_FILE_IDS in .env (comma list).
-const ROTATION = (process.env.POST_VIDEO_FILE_IDS || [
-  'BAACAgEAAxkBAAID0WiieDS5loQVTRlJv4YldD5W1vkfAALjBQACPHwRRTzftenee1R1NgQ', // original
-  'BAACAgEAAxkBAAID7Wii7DuLDfdcDFg4Noc1RPn3wp9NAAIgBQACPHwZRTwj5utrtNBfNgQ', // video 1
-  'BAACAgEAAxkBAAID-2ijA_vIzqGDcWMuzpnU6c3KvfF1AAIkBQACPHwZRY9A7UCE5qikNgQ', // video 2
-  'BAACAgEAAxkBAAID_WijBBemq9RHGdhAnedzYoeBkJLgAAIlBQACPHwZRf2StGh_jSKhNgQ', // video 3
-  'BAACAgEAAxkBAAID_2ijBDC9Kfy36JNcI0_rfF7HSMAiAAImBQACPHwZRUXG3ilAkzO_NgQ'  // video 4
-]).map(s => s.toString().trim());
+// Video rotation file_ids
+const ROTATION_RAW = process.env.POST_VIDEO_FILE_IDS;
+const ROTATION = (
+  ROTATION_RAW
+    ? ROTATION_RAW.split(',')  // from env: "id1,id2,id3"
+    : [
+        'BAACAgEAAxkBAAID0WiieDS5loQVTRlJv4YldD5W1vkfAALjBQACPHwRRTzftenee1R1NgQ',
+        'BAACAgEAAxkBAAID7Wii7DuLDfdcDFg4Noc1RPn3wp9NAAIgBQACPHwZRTwj5utrtNBfNgQ',
+        'BAACAgEAAxkBAAID-2ijA_vIzqGDcWMuzpnU6c3KvfF1AAIkBQACPHwZRY9A7UCE5qikNgQ',
+        'BAACAgEAAxkBAAID_WijBBemq9RHGdhAnedzYoeBkJLgAAIlBQACPHwZRf2StGh_jSKhNgQ',
+        'BAACAgEAAxkBAAID_2ijBDC9Kfy36JNcI0_rfF7HSMAiAAImBQACPHwZRUXG3ilAkzO_NgQ'
+      ]
+).map(s => s.toString().trim());
 
 // ======= Load celebs list (for the bot menu) =======
 const celebsPath = path.join(__dirname, 'celebs.json');
@@ -43,7 +47,9 @@ const ITEMS_PER_PAGE = 7;
 const pageByChat = new Map();
 
 // ======= Helpers =======
-function clamp(n, min, max) { return Math.max(min, Math.min(n, max)); }
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(n, max));
+}
 
 function sendPage(chatId, page) {
   const totalPages = Math.max(1, Math.ceil(celebs.length / ITEMS_PER_PAGE));
@@ -54,13 +60,13 @@ function sendPage(chatId, page) {
   const pageCelebs = celebs.slice(start, start + ITEMS_PER_PAGE);
 
   const keyboard = pageCelebs.map((c, i) => ([
-    { text: c.name, callback_data: `celeb_${start + i}` }
+    { text: c.name, callback_data: 'celeb_' + (start + i) }
   ]));
 
   const navRow = [];
-  if (safePage > 0) navRow.push({ text: '⬅ Prev', callback_data: `page_${safePage - 1}` });
-  navRow.push({ text: `Page ${safePage + 1}/${totalPages}`, callback_data: 'noop' });
-  if (safePage < totalPages - 1) navRow.push({ text: 'Next ➡', callback_data: `page_${safePage + 1}` });
+  if (safePage > 0) navRow.push({ text: '⬅ Prev', callback_data: 'page_' + (safePage - 1) });
+  navRow.push({ text: 'Page ' + (safePage + 1) + '/' + totalPages, callback_data: 'noop' });
+  if (safePage < totalPages - 1) navRow.push({ text: 'Next ➡', callback_data: 'page_' + (safePage + 1) });
   keyboard.push(navRow);
 
   bot.sendMessage(chatId, 'Choose a creator:', {
@@ -70,7 +76,10 @@ function sendPage(chatId, page) {
 
 function sendCeleb(chatId, index) {
   const c = celebs[index];
-  if (!c) return bot.sendMessage(chatId, 'That item is missing.');
+  if (!c) {
+    bot.sendMessage(chatId, 'That item is missing.');
+    return;
+  }
 
   const caption = c.name;
   const buttons = [];
@@ -79,22 +88,29 @@ function sendCeleb(chatId, index) {
     buttons.push([{ text: '🔗 View Leaks', url: c.bio }]);
   }
 
-  const page = pageByChat.get(chatId) ?? Math.floor(index / ITEMS_PER_PAGE);
-  buttons.push([{ text: '⬅ Back', callback_data: `page_${page}` }]);
+  const page = pageByChat.get(chatId) != null
+    ? pageByChat.get(chatId)
+    : Math.floor(index / ITEMS_PER_PAGE);
 
-  const opts = { caption, reply_markup: { inline_keyboard: buttons } };
+  buttons.push([{ text: '⬅ Back', callback_data: 'page_' + page }]);
+
+  const opts = { caption: caption, reply_markup: { inline_keyboard: buttons } };
 
   if (c.file_id && typeof c.file_id === 'string') {
-    return bot.sendPhoto(chatId, c.file_id, opts).catch(() =>
-      bot.sendMessage(chatId, 'Could not load the photo for this item.')
-    );
+    bot.sendPhoto(chatId, c.file_id, opts).catch(() => {
+      bot.sendMessage(chatId, 'Could not load the photo for this item.');
+    });
+    return;
   }
+
   if (c.url && typeof c.url === 'string') {
-    return bot.sendPhoto(chatId, c.url, opts).catch(() =>
-      bot.sendMessage(chatId, 'Could not load the photo for this item.')
-    );
+    bot.sendPhoto(chatId, c.url, opts).catch(() => {
+      bot.sendMessage(chatId, 'Could not load the photo for this item.');
+    });
+    return;
   }
-  return bot.sendMessage(chatId, caption, opts);
+
+  bot.sendMessage(chatId, caption, opts);
 }
 
 // ======= Commands / Callbacks =======
@@ -107,62 +123,48 @@ bot.on('callback_query', (q) => {
   const chatId = q.message.chat.id;
   const data = q.data || '';
 
-  if (data.startsWith('page_')) {
+  if (data.indexOf('page_') === 0) {
     const page = parseInt(data.split('_')[1], 10) || 0;
-    return sendPage(chatId, page);
+    sendPage(chatId, page);
+    return;
   }
-  if (data.startsWith('celeb_')) {
+
+  if (data.indexOf('celeb_') === 0) {
     const idx = parseInt(data.split('_')[1], 10);
-    return sendCeleb(chatId, idx);
+    sendCeleb(chatId, idx);
+    return;
   }
+
   if (data === 'noop') {
-    return bot.answerCallbackQuery(q.id);
+    bot.answerCallbackQuery(q.id);
+    return;
   }
 });
 
-// ======= Helpers for ID replies =======
-// Reply with file_id if user sends photo
+// ======= Simple ID helpers (optional) =======
 bot.on('photo', async (msg) => {
   try {
-    const best = msg.photo?.[msg.photo.length - 1];
+    const best = msg.photo && msg.photo[msg.photo.length - 1];
     if (!best) throw new Error('No photo sizes');
-    const snippet = '```json\n' + JSON.stringify({ file_id: best.file_id }, null, 2) + '\n```';
-    await bot.sendMessage(
-      msg.chat.id,
-      `Got it! Here is the snippet you can paste into celebs.json:\n\n${snippet}`,
-      { parse_mode: 'Markdown' }
-    );
-  } catch {
+    const text = 'Photo file_id:\n' + best.file_id;
+    await bot.sendMessage(msg.chat.id, text);
+  } catch (e) {
     bot.sendMessage(msg.chat.id, 'Sorry, I could not read that photo.');
   }
 });
 
-// Reply with file_id if user sends video
 bot.on('video', async (msg) => {
   try {
     const v = msg.video;
-    if (!v?.file_id) throw new Error('No video');
-    const shortSnippet = JSON.stringify({ file_id: v.file_id });
-    const full = {
-      file_id: v.file_id,
-      width: v.width,
-      height: v.height,
-      duration: v.duration,
-      mime_type: v.mime_type
-    };
-    await bot.sendMessage(
-      msg.chat.id,
-      `Got it! Detected video. Paste this into celebs.json:\n${shortSnippet}\n\nDetailed:\n\`\`\`json\n${JSON.stringify(full, null, 2)}\n\`\`\``,
-      { parse_mode: 'Markdown' }
-    );
+    if (!v || !v.file_id) throw new Error('No video');
+    const text = 'Video file_id:\n' + v.file_id;
+    await bot.sendMessage(msg.chat.id, text);
   } catch (e) {
-    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that media.');
+    bot.sendMessage(msg.chat.id, 'Sorry, I could not read that video.');
   }
 });
 
-// ======= AUTO-POSTER (every N minutes, multi-channel, auto-delete) =======
-// Wait one full interval before first post to avoid double-posts on deploys
-// Track last message per channel for deletion
+// ======= AUTO-POSTER (2 min, multi-channel, auto-delete) =======
 const lastMessageByChannel = new Map(); // channel -> message_id
 let rotationIndex = 0;
 let postInFlight = false;
@@ -177,35 +179,32 @@ async function postOnce() {
   const fileId = ROTATION[rotationIndex];
   const reply_markup = {
     inline_keyboard: [
-      [{ text: '👉 Full Leaks', url: FULL_LEAKS_URL }],
       [{ text: '👉 Vids', url: VIDS_URL }]
     ]
   };
 
   try {
-    // For each channel: delete previous, post new
     for (const channel of CHANNELS) {
       const prev = lastMessageByChannel.get(channel);
       if (prev) {
         try {
           await bot.deleteMessage(channel, prev);
-          console.log(`[poster] Deleted previous in ${channel}:`, prev);
+          console.log('[poster] Deleted previous in', channel, 'id=', prev);
         } catch (e) {
-          console.warn(`[poster] Could not delete previous in ${channel}:`, e.message);
+          console.warn('[poster] Could not delete previous in', channel, ':', e.message);
         }
       }
 
       const sent = await bot.sendVideo(channel, fileId, {
         caption: CAPTION,
         supports_streaming: true,
-        reply_markup
+        reply_markup: reply_markup
       });
 
       lastMessageByChannel.set(channel, sent.message_id);
       console.log('[poster] Posted to', channel, 'msg_id=', sent.message_id);
     }
 
-    // advance rotation
     rotationIndex = (rotationIndex + 1) % ROTATION.length;
   } catch (e) {
     console.error('[poster] Post failed:', e.message);
@@ -218,19 +217,13 @@ function startScheduler() {
   const minutes = POST_EVERY_MINUTES;
   const ms = minutes * 60 * 1000;
 
-  const INSTANCE_ID =
-    process.env.RAILWAY_DEPLOYMENT_ID ||
-    process.env.RAILWAY_ENVIRONMENT_ID ||
-    `local-${Math.random().toString(36).slice(2, 8)}`;
-
-  console.log(`[poster] Scheduler starting (every ${minutes} min). instance=${INSTANCE_ID}`);
+  console.log('[poster] Scheduler starting (every ' + minutes + ' min)');
   console.log('[poster] Channels:', CHANNELS.join(', '));
   console.log('[poster] Rotation size:', ROTATION.length);
 
-  // Wait one full interval before the first post to avoid duplicate posts on deploys
-  setTimeout(function tick() {
-    postOnce().finally(() => setTimeout(tick, ms));
-  }, ms);
+  // First post immediately, then interval
+  postOnce();
+  setInterval(postOnce, ms);
 }
 
 startScheduler();
