@@ -14,12 +14,12 @@ const CHANNELS = (process.env.CHANNELS || '@Botacatest,@ofleakzz1')
   .map(s => s.trim())
   .filter(Boolean);
 
-// How often to post (minutes). 120 = every 2 hours.
-const POST_EVERY_MINUTES = parseInt(process.env.POST_MINUTES || '120', 10);
+// How often to post (minutes). default now is 2 minutes for testing
+const POST_EVERY_MINUTES = parseInt(process.env.POST_MINUTES || '2', 10);
 
 // Buttons + caption
 const CAPTION = 'Free Onlyfans';
-const FULL_LEAKS_URL = process.env.FULL_LEAKS_URL || 'https://t.me/Freakysl_bot';
+const FULL_LEAKS_URL = process.env.FULL_LEAKS_URL || 'https://t.me/Freakysl_bot'; // (unused but kept)
 const VIDS_URL = 'https://t.me/offreel';
 
 // Video rotation list (Telegram file_ids). You can override with POST_VIDEO_FILE_IDS in .env (comma list).
@@ -161,8 +161,7 @@ bot.on('video', async (msg) => {
 });
 
 // ======= AUTO-POSTER (every N minutes, multi-channel, auto-delete) =======
-// Wait one full interval before first post to avoid double-posts on deploys
-// Track last message per channel for deletion
+
 const lastMessageByChannel = new Map(); // channel -> message_id
 let rotationIndex = 0;
 let postInFlight = false;
@@ -226,12 +225,4 @@ function startScheduler() {
   console.log('[poster] Channels:', CHANNELS.join(', '));
   console.log('[poster] Rotation size:', ROTATION.length);
 
-  // Wait one full interval before the first post to avoid duplicate posts on deploys
-  setTimeout(function tick() {
-    postOnce().finally(() => setTimeout(tick, ms));
-  }, ms);
-}
-
-startScheduler();
-
-console.log('Bot is running…');
+  //
