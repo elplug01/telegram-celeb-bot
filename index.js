@@ -1,9 +1,4 @@
-Apple ID Password
-KBoone1164@
 
-https://youtube.com/shorts/axaiXVhPG_Q?si=RdlXHI_jarGF9cAE
-
-8468456348:AAFEqF8qIWtQXaCnrD1tjUTIf1u2qZ0X0_c
 
 // index.js
 require('dotenv').config();
