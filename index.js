@@ -177,7 +177,6 @@ async function postOnce() {
   const fileId = ROTATION[rotationIndex];
   const reply_markup = {
     inline_keyboard: [
-      [{ text: '👉 Full Leaks', url: FULL_LEAKS_URL }],
       [{ text: '👉 Vids', url: VIDS_URL }]
     ]
   };
